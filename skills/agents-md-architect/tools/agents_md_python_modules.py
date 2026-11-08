@@ -102,13 +102,14 @@ def module_invocation_references(
     module_targets: dict[str, str] = {}
     external_sources: dict[str, set[str]] = {}
     for import_root in roots:
-        for candidate, resolved_name in resolve_module_paths(module, (import_root.path,), discovered_files):
+        for candidate, resolved_name in resolve_module_paths(module, (import_root.path,)):
             path, external_path, ownership_issue = resolve_import_source_path(source, import_root, candidate)
             if ownership_issue is not None:
                 issues.append(ownership_issue)
             elif external_path is not None:
-                external_sources.setdefault(external_path, set()).add(source.origin)
-            elif path is not None:
+                if candidate in discovered_files:
+                    external_sources.setdefault(external_path, set()).add(source.origin)
+            elif path is not None and path in discovered_files:
                 module_targets[path] = resolved_name
     module_files = tuple((path, name) for path, name in module_targets.items() if not path.endswith("/__init__.py"))
     package_initializers_only = tuple(
@@ -121,14 +122,14 @@ def module_invocation_references(
         if package_path == ".." or package_path.startswith("../") or package_path.startswith("/"):
             continue
         main_path = f"{package_path}/__main__.py"
-        if main_path in discovered_files:
-            path, external_path, ownership_issue = resolve_import_source_path(source, import_root, main_path)
-            if ownership_issue is not None:
-                issues.append(ownership_issue)
-            elif external_path is not None:
+        path, external_path, ownership_issue = resolve_import_source_path(source, import_root, main_path)
+        if ownership_issue is not None:
+            issues.append(ownership_issue)
+        elif external_path is not None:
+            if main_path in discovered_files:
                 external_sources.setdefault(external_path, set()).add(source.origin)
-            elif path is not None:
-                package_mains[path] = f"{module}.__main__"
+        elif path is not None and path in discovered_files:
+            package_mains[path] = f"{module}.__main__"
 
     matches: tuple[tuple[str, str], ...]
     initialized_prefixes: range

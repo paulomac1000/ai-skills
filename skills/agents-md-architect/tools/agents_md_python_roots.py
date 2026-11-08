@@ -14,9 +14,13 @@ from agents_md_source_types import CommandSource, ImportRoot
 def resolve_module_paths(
     module: str,
     roots: tuple[str, ...],
-    discovered_files: set[str],
+    discovered_files: set[str] | None = None,
 ) -> tuple[tuple[str, str], ...]:
-    """Return discovered local module files under the declared import roots."""
+    """Return discovered local module files under the declared import roots.
+
+    With ``discovered_files`` set to ``None`` the candidate paths are returned
+    unfiltered so callers can map checkout ownership before membership checks.
+    """
     relative_module = module.replace(".", "/")
     matches: dict[str, str] = {}
     for root in roots:
@@ -24,7 +28,7 @@ def resolve_module_paths(
         if base == ".." or base.startswith("../") or base.startswith("/"):
             continue
         for candidate in (f"{base}.py", f"{base}/__init__.py"):
-            if candidate in discovered_files:
+            if discovered_files is None or candidate in discovered_files:
                 matches[candidate] = module
     return tuple(sorted(matches.items()))
 
@@ -121,7 +125,7 @@ def normalize_pythonpath_roots(
         except ValueError:
             continue
         repo_relative = relative_root.as_posix() or "."
-        normalized[(repo_relative, False)] = ImportRoot(repo_relative)
+        normalized[(repo_relative, False)] = ImportRoot(repo_relative, normalized=True)
     return tuple(normalized.values()), tuple(issues)
 
 

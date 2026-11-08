@@ -9,7 +9,7 @@ from typing import Literal
 Classification = Literal["ci_entrypoint", "task_entrypoint", "helper", "library", "generated", "excluded"]
 ExternalCheckoutKind = Literal["pinned_revision", "trusted_lock", "candidate_input", "workflow_authority"]
 
-GATE_SOURCE_POLICY_REVISION = "agents-md-gate-sources-9"
+GATE_SOURCE_POLICY_REVISION = "agents-md-gate-sources-10"
 MAX_CLASSIFIER_FILE_BYTES = 2 * 1024 * 1024
 MAX_WRAPPER_DEPTH = 4
 MAX_IMPORT_DEPTH = 4
@@ -57,10 +57,16 @@ class GateSourceInventory:
 
 @dataclass(frozen=True)
 class ImportRoot:
-    """One PYTHONPATH root plus the frame its paths are expressed in."""
+    """One PYTHONPATH root plus the frame its paths are expressed in.
+
+    ``normalized`` marks roots resolved from absolute paths against the
+    audited checkout: their repository-relative path may already carry the
+    owning checkout alias, so ownership resolution must not prepend it twice.
+    """
 
     path: str
     workspace_relative: bool = False
+    normalized: bool = False
 
 
 @dataclass(frozen=True)

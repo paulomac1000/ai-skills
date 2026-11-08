@@ -288,3 +288,66 @@ def test_repeated_wrapper_calls_in_equivalent_context_preserve_origins_without_b
     assert len(wrapper.origins) == 257
     assert nested.counted is True
     assert not any("task-wrapper scan exceeds" in issue for issue in inventory.issues)
+
+
+def test_module_entrypoint_resolves_through_candidate_alias(tmp_path: Path) -> None:
+    """Dz0x: workspace-framed module targets map ownership before discovery membership."""
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    (lib / "entry.py").write_text("import helper\n", encoding="utf-8")
+    (lib / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          path: candidate\n"
+        "      - name: invoke\n"
+        "        working-directory: candidate\n"
+        "        env:\n"
+        "          PYTHONPATH: $GITHUB_WORKSPACE/candidate/lib\n"
+        "        run: python -m entry\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    row = next(source for source in inventory.sources if source.path == "lib/entry.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert "lib/helper.py" in {source.path for source in inventory.sources}
+    assert not inventory.issues
+
+
+def test_package_main_resolves_through_candidate_alias(tmp_path: Path) -> None:
+    """Dz0x: package mains resolve ownership before the discovered-file check."""
+    pkg = tmp_path / "lib" / "pkg"
+    pkg.mkdir(parents=True)
+    (pkg / "__main__.py").write_text("import helper\n", encoding="utf-8")
+    (tmp_path / "lib" / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          path: candidate\n"
+        "      - name: invoke\n"
+        "        working-directory: candidate\n"
+        "        env:\n"
+        "          PYTHONPATH: $GITHUB_WORKSPACE/candidate/lib\n"
+        "        run: python -m pkg\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    row = next(source for source in inventory.sources if source.path == "lib/pkg/__main__.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert not inventory.issues

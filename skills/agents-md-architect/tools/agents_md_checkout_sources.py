@@ -166,8 +166,10 @@ def resolve_import_source_path(
     workspace_path = relative_path
     if not root.workspace_relative:
         local_prefix = _local_checkout_prefix(source)
-        already_anchored = local_prefix is not None and (
-            root.path == local_prefix or root.path.startswith(f"{local_prefix}/")
+        already_anchored = (
+            root.normalized
+            and local_prefix is not None
+            and (root.path == local_prefix or root.path.startswith(f"{local_prefix}/"))
         )
         if local_prefix is not None and not already_anchored:
             workspace_path = posixpath.join(local_prefix, relative_path)

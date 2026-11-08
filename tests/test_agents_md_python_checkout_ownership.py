@@ -383,3 +383,32 @@ def test_legitimate_module_entrypoint_is_not_reported_as_symlink(tmp_path: Path)
     assert row.classification == "task_entrypoint"
     assert row.counted is True
     assert not inventory.issues
+
+
+def test_candidate_relative_root_keeps_directory_components(tmp_path: Path) -> None:
+    """Dz0z: candidate-relative roots re-anchor under the alias without name stripping."""
+    (tmp_path / "entry.py").write_text("import helper\n", encoding="utf-8")
+    nested = tmp_path / "candidate"
+    nested.mkdir()
+    (nested / "helper.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          path: candidate\n"
+        "      - name: invoke\n"
+        "        working-directory: candidate\n"
+        "        env:\n"
+        "          PYTHONPATH: candidate\n"
+        "        run: python entry.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "candidate/helper.py" in {source.path for source in inventory.sources}
+    assert not inventory.issues
