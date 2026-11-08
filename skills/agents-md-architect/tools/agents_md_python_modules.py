@@ -131,6 +131,24 @@ def module_invocation_references(
         elif path is not None and path in discovered_files:
             package_mains[path] = f"{module}.__main__"
 
+    if not external_sources and not module_targets and not package_mains:
+        # The invocation resolved nowhere locally: record external ownership for
+        # every root that maps into an external checkout, regardless of whether
+        # a candidate-local lookalike exists, so external-only invocations stay
+        # visible in the evidence instead of returning a silent complete audit.
+        for import_root in roots:
+            for candidate, _resolved_name in resolve_module_paths(module, (import_root.path,)):
+                path, external_path, ownership_issue = resolve_import_source_path(source, import_root, candidate)
+                if ownership_issue is None and external_path is not None:
+                    external_sources.setdefault(external_path, set()).add(source.origin)
+            package_path = posixpath.normpath(posixpath.join(import_root.path, relative_module))
+            if package_path != ".." and not package_path.startswith("../") and not package_path.startswith("/"):
+                path, external_path, ownership_issue = resolve_import_source_path(
+                    source, import_root, f"{package_path}/__main__.py"
+                )
+                if ownership_issue is None and external_path is not None:
+                    external_sources.setdefault(external_path, set()).add(source.origin)
+
     matches: tuple[tuple[str, str], ...]
     initialized_prefixes: range
     if external_sources and (package_mains or module_files or package_initializers_only):
