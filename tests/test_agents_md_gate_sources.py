@@ -1073,3 +1073,43 @@ def test_unrecognized_dynamic_checkout_fails_closed(tmp_path: Path) -> None:
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
 
     assert any("must pin an immutable full commit SHA" in issue for issue in inventory.issues)
+
+
+def test_jenkinsfile_shell_invocations_are_command_sources(tmp_path: Path) -> None:
+    """ENWJ: non-GitHub CI surfaces route through executable-command parsers."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "Jenkinsfile").write_text("sh 'python tools/check.py'\n", encoding="utf-8")
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    row = next(source for source in inventory.sources if source.path == "tools/check.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert not inventory.issues
+
+
+def test_package_json_script_bodies_are_command_sources(tmp_path: Path) -> None:
+    """ENWM: package.json script bodies retain entrypoint coverage."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "package.json").write_text(
+        '{"scripts": {"check": "python tools/check.py"}}\n', encoding="utf-8"
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    row = next(source for source in inventory.sources if source.path == "tools/check.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert not inventory.issues
+
+
+def test_gitlab_ci_script_invocations_are_command_sources(tmp_path: Path) -> None:
+    """ENWJ: GitLab CI script commands are parsed, never silently dropped."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / ".gitlab-ci.yml").write_text(
+        "build:\n  script:\n    - python tools/check.py\n", encoding="utf-8"
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    row = next(source for source in inventory.sources if source.path == "tools/check.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert not inventory.issues

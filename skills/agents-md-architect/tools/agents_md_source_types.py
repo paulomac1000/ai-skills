@@ -9,7 +9,7 @@ from typing import Literal
 Classification = Literal["ci_entrypoint", "task_entrypoint", "helper", "library", "generated", "excluded"]
 ExternalCheckoutKind = Literal["pinned_revision", "trusted_lock", "candidate_input", "workflow_authority"]
 
-GATE_SOURCE_POLICY_REVISION = "agents-md-gate-sources-11"
+GATE_SOURCE_POLICY_REVISION = "agents-md-gate-sources-12"
 MAX_CLASSIFIER_FILE_BYTES = 2 * 1024 * 1024
 MAX_WRAPPER_DEPTH = 4
 MAX_IMPORT_DEPTH = 4

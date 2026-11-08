@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shlex
 from collections import deque
 from dataclasses import replace
@@ -45,6 +46,10 @@ def _commands_from_surface(
         commands = _extract_python_invocations(text)
     elif suffix in {".sh", ".ps1"} or Path(relative).name in WELL_KNOWN_TASK_RUNNERS:
         commands = _extract_gate_invocations(relative, text)
+    elif suffix in {".yml", ".yaml"} or Path(relative).name.casefold() == "jenkinsfile":
+        commands = _extract_gate_invocations(relative, text)
+    elif Path(relative).name == "package.json":
+        commands = public_task_invocations(relative, text) | _package_script_commands(text)
     else:
         commands = public_task_invocations(relative, text)
     return WorkflowCommandScan(
@@ -61,6 +66,18 @@ def _commands_from_surface(
         ),
         (),
     )
+
+
+def _package_script_commands(text: str) -> set[str]:
+    """Return package.json script bodies as executable command sources."""
+    try:
+        document = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return set()
+    scripts = document.get("scripts") if isinstance(document, dict) else None
+    if not isinstance(scripts, dict):
+        return set()
+    return {value.strip() for value in scripts.values() if isinstance(value, str) and value.strip()}
 
 
 def _effective_pythonpath(source: CommandSource) -> str | None:
