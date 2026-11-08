@@ -20,6 +20,7 @@ from agents_md_shell_evidence_impl import (
     _working_directory_override,
     _yaml_syntax_error,
 )
+from agents_md_shell_scoping import shell_invocations_with_scope
 from agents_md_source_types import (
     COMMAND_PATH_REFERENCE,
     CheckoutContext,
@@ -170,6 +171,7 @@ def github_workflow_command_scan(
                 issues.append(f"workflow command scope is unresolved at {relative} job {job_id!r} step {step_index}")
                 continue
             shell_kind = _github_shell_kind(shell) if shell is not None else None
+            scoped_entries: list[tuple[str, str]] | None = None
             if shell_kind is None:
                 shell_invocations = _extract_shell_invocations(run)
                 powershell_invocations = _extract_powershell_invocations(run)
@@ -184,33 +186,39 @@ def github_workflow_command_scan(
                     issues.append(f"workflow shell is unresolved at {relative} job {job_id!r} step {step_index}")
                     continue
             else:
-                invocations = (
-                    _extract_powershell_invocations(run)
-                    if shell_kind == "powershell"
-                    else _extract_shell_invocations(run)
-                )
+                if shell_kind == "powershell":
+                    invocations = _extract_powershell_invocations(run)
+                else:
+                    scoped_entries, cd_issues = shell_invocations_with_scope(
+                        run, working_directory, f"{relative} job {job_id!r} step {step_index}"
+                    )
+                    issues.extend(cd_issues)
+                    invocations = {command for command, _cwd in scoped_entries}
             if not invocations:
                 continue
 
-            workspace_working_directory = working_directory
             local_aliases = tuple(alias for alias, owner in checkouts.items() if owner is None and alias != ".")
-            working_directory = normalize_checkout_working_directory(working_directory, local_aliases)
-            checkout_context = CheckoutContext(
-                job_id,
-                step_index,
-                tuple(sorted(checkouts.items())),
-                tuple(sorted(unresolved_aliases)),
-                workspace_working_directory,
-            )
             pythonpath = _workflow_environment_value("PYTHONPATH", environment_scopes)
             line = run_node.start_mark.line + 1 if isinstance(run_node, ScalarNode) else 0
             origin = f"{relative}:{line}" if line else relative
-            for command in sorted(invocations):
+            if scoped_entries is not None:
+                command_entries: list[tuple[str, str]] = list(dict.fromkeys(scoped_entries))
+            else:
+                command_entries = [(command, working_directory) for command in sorted(invocations)]
+            for command, command_directory in command_entries:
                 normalized = GITHUB_PYTHON_LAUNCHER.sub("python", command)
                 if has_python_launcher:
                     normalized = GITHUB_PYTHON_TAIL.sub(r"python \g<argv>", normalized)
+                command_working_directory = normalize_checkout_working_directory(command_directory, local_aliases)
+                checkout_context = CheckoutContext(
+                    job_id,
+                    step_index,
+                    tuple(sorted(checkouts.items())),
+                    tuple(sorted(unresolved_aliases)),
+                    command_directory,
+                )
                 commands.append(
-                    CommandSource(relative, working_directory, normalized, origin, checkout_context, pythonpath)
+                    CommandSource(relative, command_working_directory, normalized, origin, checkout_context, pythonpath)
                 )
 
     return WorkflowCommandScan(tuple(commands), tuple(sorted(set(issues))))

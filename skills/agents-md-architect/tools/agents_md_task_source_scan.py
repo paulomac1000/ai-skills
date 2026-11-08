@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from collections import deque
+from collections.abc import Collection
 from dataclasses import replace
 from pathlib import Path
 
@@ -32,16 +34,33 @@ from agents_md_source_types import (
 from agents_md_workflow_contexts import github_workflow_command_scan
 from discover_repository import Discovery
 
+_LOCAL_ACTION_USES = re.compile(r"^\s*(?:-\s+)?uses:\s*(\./\S+)\s*$", re.MULTILINE)
+
 
 def _commands_from_surface(
     relative: str,
     text: str,
     parent: CommandSource | None = None,
+    discovery_files: Collection[str] | None = None,
 ) -> WorkflowCommandScan:
     """Extract actual command surfaces using repository-owned static parsers."""
     suffix = Path(relative).suffix.casefold()
     if relative.startswith(".github/workflows/") and suffix in {".yml", ".yaml"}:
-        return github_workflow_command_scan(relative, text)
+        scan = github_workflow_command_scan(relative, text)
+        if discovery_files is not None:
+            for reference in _LOCAL_ACTION_USES.findall(text):
+                target = reference.removeprefix("./").rstrip("/")
+                resolved_workflow = reference.removeprefix("./") in discovery_files
+                resolved_action = any(f"{target}/action.{kind}" in discovery_files for kind in ("yml", "yaml"))
+                if not resolved_workflow and not resolved_action:
+                    scan = WorkflowCommandScan(
+                        scan.commands,
+                        (
+                            *scan.issues,
+                            f"local composite action reference is unresolved at {relative}: {reference}",
+                        ),
+                    )
+        return scan
     if suffix == ".py":
         commands = _extract_python_invocations(text)
     elif suffix in {".sh", ".ps1"} or Path(relative).name in WELL_KNOWN_TASK_RUNNERS:
@@ -128,7 +147,7 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
         except (OSError, UnicodeError, ValueError) as error:
             issues.append(f"cannot inspect task source {relative!r}: {error}")
             continue
-        command_scan = _commands_from_surface(relative, text, parent)
+        command_scan = _commands_from_surface(relative, text, parent, discovery.files)
         issues.extend(command_scan.issues)
         for command_source in command_scan.commands:
             origin = command_source.origin

@@ -33,6 +33,11 @@ def public_task_surfaces(discovery: Discovery) -> set[str]:
     surfaces = set(discovery.ci_files)
     surfaces.update(path for path in discovery.task_runners if Path(path).name in WELL_KNOWN_TASK_RUNNERS)
     surfaces.update(path for path in discovery.manifests if Path(path).name in {"package.json", "pyproject.toml"})
+    surfaces.update(
+        path
+        for path in discovery.files
+        if path.startswith(".github/actions/") and Path(path).name in {"action.yml", "action.yaml"}
+    )
     return surfaces
 
 

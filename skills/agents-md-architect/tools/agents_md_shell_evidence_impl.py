@@ -143,6 +143,8 @@ def _yaml_node_is_executable(relative: str, path: tuple[str, ...]) -> bool:
     name = Path(relative).name.casefold()
     if relative.startswith(".github/workflows/"):
         return len(path) == 5 and path[0] == "jobs" and path[2:] == ("steps", "[]", "run")
+    if relative.startswith(".github/actions/"):
+        return len(path) == 4 and path[0] == "runs" and path[1:] == ("steps", "[]", "run")
     if relative == ".circleci/config.yml":
         return (len(path) == 5 and path[0] == "jobs" and path[2:] == ("steps", "[]", "run")) or (
             len(path) == 6 and path[0] == "jobs" and path[2:] == ("steps", "[]", "run", "command")

@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.35.1 - Unreleased
+
+### Fixed
+
+- The gate-source classifier no longer lets an earlier external `PYTHONPATH` root silently lose an invoked module to a later candidate-local lookalike. Import roots now resolve in runtime order with the invocation directory first, an earlier external root that could own the invoked module is recorded as external ownership, and the ambiguity blocks a complete inventory instead of silently attributing the invocation to candidate-local code. This fixes a coverage defect present in v3.35.0.
+- Workflow shell run blocks now preserve statically resolvable `cd` and `pushd` transitions for subsequent command ownership, attribute each extracted command against its transitioned directory, and fail closed with an explicit inventory issue when a directory transition cannot be statically resolved. This fixes invoked-source misattribution present in v3.35.0.
+- Local GitHub composite actions are now part of the declared static command-discovery boundary: `runs.steps[].run` entries in `.github/actions/**/action.yml` are scanned as command sources, and a workflow reference to a local action without a resolvable target file fails closed instead of silently disappearing. This fixes an invoked-source coverage gap present in v3.35.0.
+- The gate-source policy revision advances to `agents-md-gate-sources-13` so consumers re-run classification; the 64-entrypoint cap and all established ownership, non-execution, and fail-closed invariants are unchanged.
+
 ## 3.35.0 - 2026-11-08
 
 ### Added
