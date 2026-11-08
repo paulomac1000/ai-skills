@@ -234,3 +234,29 @@ def test_module_from_external_nested_checkout_preserves_checkout_identity(tmp_pa
         for source in inventory.sources
     )
     assert not inventory.issues
+
+
+def test_command_local_pythonpath_reaches_wrapper_children(tmp_path: Path) -> None:
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "wrapper.sh").write_text("python -m child\n", encoding="utf-8")
+    child = tmp_path / "lib" / "child.py"
+    child.parent.mkdir()
+    child.write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: PYTHONPATH=lib bash scripts/wrapper.sh\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == "lib/child.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert not inventory.issues

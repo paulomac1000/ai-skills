@@ -219,3 +219,32 @@ def test_import_dedup_preserves_distinct_checkout_ownership(tmp_path: Path) -> N
         for source in inventory.sources
     )
     assert not inventory.issues
+
+
+def test_imported_entrypoint_is_traversed_under_importing_context(tmp_path: Path) -> None:
+    (tmp_path / "shared.py").write_text("import helper\n", encoding="utf-8")
+    (tmp_path / "entry.py").write_text("import shared\n", encoding="utf-8")
+    helper = tmp_path / "lib" / "helper.py"
+    helper.parent.mkdir()
+    helper.write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - run: python shared.py\n"
+        "      - run: PYTHONPATH=lib python entry.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert {row.classification: row.counted for row in inventory.sources if row.path in {"shared.py", "entry.py"}} == {
+        "task_entrypoint": True
+    }
+    row = next(source for source in inventory.sources if source.path == "lib/helper.py")
+    assert row.classification == "library"
+    assert row.counted is False
+    assert not inventory.issues

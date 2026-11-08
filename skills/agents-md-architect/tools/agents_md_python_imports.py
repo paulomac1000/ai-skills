@@ -94,7 +94,6 @@ def collect_imported_libraries(
 ) -> tuple[dict[str, tuple[str, ...]], dict[str, tuple[str, ...]], tuple[str, ...]]:
     """Follow repository-local AST imports within explicit file/depth bounds."""
     discovered_files = set(discovery.files)
-    direct_entrypoints = set(task_sources.references)
     imported_origins: dict[str, set[str]] = {}
     external_origins: dict[str, set[str]] = {}
     issues: list[str] = []
@@ -176,8 +175,6 @@ def collect_imported_libraries(
                     + ", ".join(sorted(matches))
                 )
             for path, resolved_module in sorted(matches.items()):
-                if path in direct_entrypoints:
-                    continue
                 origin = f"{invocation.path}:{line_number}"
                 imported_origins.setdefault(path, set()).add(origin)
                 if Path(path).suffix.casefold() != ".py":

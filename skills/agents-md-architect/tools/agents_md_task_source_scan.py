@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from collections import deque
 from dataclasses import replace
 from pathlib import Path
@@ -60,6 +61,16 @@ def _commands_from_surface(
         ),
         (),
     )
+
+
+def _effective_pythonpath(source: CommandSource) -> str | None:
+    """Return the command-local PYTHONPATH assignment when one is present."""
+    try:
+        tokens = shlex.split(source.command, posix=True)
+    except ValueError:
+        return source.pythonpath
+    assignments = [token.partition("=")[2] for token in tokens if token.startswith("PYTHONPATH=")]
+    return assignments[-1] if assignments else source.pythonpath
 
 
 def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
@@ -149,14 +160,26 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                         )
                     )
                     if depth < MAX_WRAPPER_DEPTH:
-                        pending.append((candidate, depth + 1, command_source))
+                        pending.append(
+                            (
+                                candidate,
+                                depth + 1,
+                                replace(command_source, pythonpath=_effective_pythonpath(command_source)),
+                            )
+                        )
                     else:
                         issues.append(
                             f"Python task-source depth exceeds {MAX_WRAPPER_DEPTH} at {origin} -> {candidate}"
                         )
                 if suffix in {".sh", ".ps1"}:
                     if depth < MAX_WRAPPER_DEPTH:
-                        pending.append((candidate, depth + 1, command_source))
+                        pending.append(
+                            (
+                                candidate,
+                                depth + 1,
+                                replace(command_source, pythonpath=_effective_pythonpath(command_source)),
+                            )
+                        )
                     else:
                         issues.append(f"wrapper depth exceeds {MAX_WRAPPER_DEPTH} at {origin} -> {candidate}")
 
@@ -178,7 +201,13 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                 references.setdefault(candidate, set()).update(invocation.origin for invocation in invocations)
                 module_invocations.setdefault(candidate, []).extend(invocations)
                 if depth < MAX_WRAPPER_DEPTH:
-                    pending.append((candidate, depth + 1, command_source))
+                    pending.append(
+                        (
+                            candidate,
+                            depth + 1,
+                            replace(command_source, pythonpath=_effective_pythonpath(command_source)),
+                        )
+                    )
                 else:
                     issues.append(
                         f"module wrapper depth exceeds {MAX_WRAPPER_DEPTH} at {command_source.origin} -> {candidate}"

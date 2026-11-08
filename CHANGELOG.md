@@ -9,7 +9,7 @@
 ### Changed
 
 - Gate-source receipts expose per-source origins and inventory issues while retaining the 64-entrypoint limit. Moving a genuinely invoked validator cannot make an over-budget consumer pass by path alone.
-- Gate-source policy revision 8 preserves checkout ownership through module, transitive import, and script resolution, including nested local and pinned external checkouts; it keeps parent package initializers and relative imports in the dependency audit, resolves trusted workspace and in-checkout absolute `PYTHONPATH` roots, distinguishes known standard-library/installed tooling from unresolved repository targets, and preserves accurate entrypoint counts when an unresolved root coexists with proven `bin/` or shebang evidence. Missing root ownership, unresolved repository modules, and exhausted bounds remain blocking inventory findings.
+- Gate-source policy revision 9 preserves checkout ownership through module, transitive import, and script resolution, including nested local and pinned external checkouts; it keeps parent package initializers and relative imports in the dependency audit, traverses invoked entrypoints under each importer's roots, propagates command-local `PYTHONPATH` into wrapper scans, resolves trusted workspace and in-checkout absolute `PYTHONPATH` roots, distinguishes known standard-library/installed tooling from unresolved repository targets, and preserves accurate entrypoint counts when an unresolved root coexists with proven `bin/` or shebang evidence. Missing root ownership, unresolved repository modules, and exhausted bounds remain blocking inventory findings.
 
 ## 3.34.0 - 2026-11-04
 
