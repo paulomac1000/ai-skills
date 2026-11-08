@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "skills" / "agents-md-architect" / "tools"
 if str(TOOLS) not in sys.path:
@@ -341,4 +343,43 @@ def test_normalized_absolute_root_stays_in_candidate_checkout(tmp_path: Path) ->
         source.path == "external:example/authority@0123456789abcdef0123456789abcdef01234567/lib/helper.py"
         for source in inventory.sources
     )
+    assert not inventory.issues
+
+
+def test_symlinked_module_entrypoint_reports_incomplete_inventory(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "entry_target.py").write_text("VALUE = 1\n", encoding="utf-8")
+    try:
+        (tmp_path / "entry.py").symlink_to(outside / "entry_target.py")
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: python -m entry\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert any("invoked module 'entry' not found" in issue or "symlink" in issue for issue in inventory.issues)
+    assert not any(source.path == "entry.py" and source.counted for source in inventory.sources)
+
+
+def test_legitimate_module_entrypoint_is_not_reported_as_symlink(tmp_path: Path) -> None:
+    module = tmp_path / "entry.py"
+    module.write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: python -m entry\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == "entry.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
     assert not inventory.issues

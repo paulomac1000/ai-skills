@@ -78,7 +78,7 @@ def has_repository_module_namespace(
             f"{base}.py" in discovered_files
             or any(path.startswith(f"{base}/") for path in discovered_files)
             or any(
-                link == base or link.startswith(f"{base}/") or base.startswith(f"{link}/")
+                link == base or link == f"{base}.py" or link.startswith(f"{base}/") or base.startswith(f"{link}/")
                 for link in discovered_symlinks
             )
         ):
@@ -221,11 +221,9 @@ def collect_imported_libraries(
                     package_path = posixpath.normpath(posixpath.join(import_root.path, package_name.replace(".", "/")))
                     if package_path == ".." or package_path.startswith("../") or package_path.startswith("/"):
                         continue
-                    initializer = f"{package_path}/__init__.py"
-                    if initializer not in discovered_files:
-                        continue
+                    workspace_initializer = f"{package_path}/__init__.py"
                     local_path, external_path, ownership_issue = resolve_import_source_path(
-                        module_source, import_root, initializer
+                        module_source, import_root, workspace_initializer
                     )
                     origin = f"{invocation.path}:{line_number}"
                     if ownership_issue is not None:
@@ -234,7 +232,7 @@ def collect_imported_libraries(
                     if external_path is not None:
                         external_origins.setdefault(external_path, set()).add(origin)
                         continue
-                    if local_path is None:
+                    if local_path is None or local_path not in discovered_files:
                         continue
                     imported_origins.setdefault(local_path, set()).add(origin)
                     if depth >= MAX_IMPORT_DEPTH:

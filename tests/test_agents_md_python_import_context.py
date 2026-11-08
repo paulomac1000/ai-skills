@@ -255,7 +255,10 @@ def test_symlinked_imported_file_reports_incomplete_inventory(tmp_path: Path) ->
     outside.mkdir()
     (outside / "helper_target.py").write_text("VALUE = 1\n", encoding="utf-8")
     (tmp_path / "entry.py").write_text("import helper\n", encoding="utf-8")
-    (tmp_path / "helper.py").symlink_to(outside / "helper_target.py")
+    try:
+        (tmp_path / "helper.py").symlink_to(outside / "helper_target.py")
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
     workflow = tmp_path / ".github" / "workflows" / "ci.yml"
     workflow.parent.mkdir(parents=True)
     workflow.write_text(
@@ -275,7 +278,10 @@ def test_symlinked_package_directory_reports_incomplete_inventory(tmp_path: Path
     outside.mkdir()
     (outside / "mod.py").write_text("VALUE = 1\n", encoding="utf-8")
     (tmp_path / "entry.py").write_text("import pkg.mod\n", encoding="utf-8")
-    (tmp_path / "pkg").symlink_to(outside, target_is_directory=True)
+    try:
+        (tmp_path / "pkg").symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
     workflow = tmp_path / ".github" / "workflows" / "ci.yml"
     workflow.parent.mkdir(parents=True)
     workflow.write_text(
@@ -335,4 +341,41 @@ def test_workspace_framed_root_inside_candidate_resolves_candidate_relative_file
     assert row.classification == "library"
     assert row.counted is False
     assert not any(source.path == "candidate/lib/helper.py" and source.counted for source in inventory.sources)
+    assert not inventory.issues
+
+
+def test_workspace_framed_root_reaches_parent_initializers(tmp_path: Path) -> None:
+    (tmp_path / "entry.py").write_text("import pkg.mod\n", encoding="utf-8")
+    (tmp_path / "lib" / "pkg").mkdir(parents=True)
+    (tmp_path / "lib" / "pkg" / "__init__.py").write_text("import helper\n", encoding="utf-8")
+    (tmp_path / "lib" / "pkg" / "mod.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "lib" / "helper.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          path: candidate\n"
+        "      - name: Invoke workspace candidate package\n"
+        "        working-directory: candidate\n"
+        "        env:\n"
+        "          PYTHONPATH: $GITHUB_WORKSPACE/candidate/lib\n"
+        "        run: python entry.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    inventoried = {source.path for source in inventory.sources}
+    assert {"lib/pkg/mod.py", "lib/pkg/__init__.py", "lib/helper.py"} <= inventoried
+    assert all(
+        not source.counted
+        for source in inventory.sources
+        if source.path in {"lib/pkg/mod.py", "lib/pkg/__init__.py", "lib/helper.py"}
+    )
     assert not inventory.issues
