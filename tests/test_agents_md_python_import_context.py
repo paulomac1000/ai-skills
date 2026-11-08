@@ -104,6 +104,57 @@ def test_imported_package_initializer_relative_import_is_included(tmp_path: Path
     assert not inventory.issues
 
 
+def test_transitive_import_respects_external_checkout_ownership(tmp_path: Path) -> None:
+    (tmp_path / "entry.py").write_text("import helper\n", encoding="utf-8")
+    external_lookalike = tmp_path / "vendor" / "helper.py"
+    external_lookalike.parent.mkdir()
+    external_lookalike.write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          repository: example/vendor\n"
+        "          ref: abcdef0123456789abcdef0123456789abcdef01\n"
+        "          path: vendor\n"
+        "      - run: PYTHONPATH=vendor python -m entry\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert not any(source.path == "vendor/helper.py" for source in inventory.sources)
+    assert any(
+        source.path == "external:example/vendor@abcdef0123456789abcdef0123456789abcdef01/helper.py"
+        and source.classification == "excluded"
+        for source in inventory.sources
+    )
+    assert not inventory.issues
+
+
+def test_dotted_import_includes_parent_package_initializers(tmp_path: Path) -> None:
+    _write_script(tmp_path, "check.py", "import pkg.mod\n")
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("from . import helper\n", encoding="utf-8")
+    (package / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (package / "mod.py").write_text("VALUE = 2\n", encoding="utf-8")
+    _write_workflow(tmp_path, "python scripts/check.py")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert {"pkg/__init__.py", "pkg/helper.py"} <= {source.path for source in inventory.sources}
+    assert all(
+        not source.counted for source in inventory.sources if source.path in {"pkg/__init__.py", "pkg/helper.py"}
+    )
+    assert not inventory.issues
+
+
 def test_unresolved_pythonpath_does_not_downgrade_direct_entrypoint(tmp_path: Path) -> None:
     module = tmp_path / ".agents" / "tools" / "validator.py"
     module.parent.mkdir(parents=True)

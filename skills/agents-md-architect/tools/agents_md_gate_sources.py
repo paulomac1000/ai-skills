@@ -39,18 +39,23 @@ def classify_gate_sources(
     """Classify entrypoints and bounded imported sources without executing them."""
     safe_root = Path(discovery.root)
     task_scan: TaskSourceScan = collect_task_references(safe_root, discovery)
-    imported_libraries, import_issues = collect_imported_libraries(safe_root, discovery, task_scan)
+    imported_libraries, imported_external_sources, import_issues = collect_imported_libraries(
+        safe_root, discovery, task_scan
+    )
+    external_sources = {path: set(origins) for path, origins in task_scan.external_sources.items()}
+    for external_path, imported_origins in imported_external_sources.items():
+        external_sources.setdefault(external_path, set()).update(imported_origins)
     candidates = set(discovery.ci_files)
     candidates.update(discovery.task_runners)
     candidates.update(task_scan.references)
     candidates.update(task_scan.unresolved_module_candidates)
     candidates.update(imported_libraries)
-    candidates.update(task_scan.external_sources)
+    candidates.update(external_sources)
     entrypoint_paths = set(task_scan.references)
     rows: list[GateSource] = []
 
     for relative in sorted(candidates):
-        external_origins = task_scan.external_sources.get(relative)
+        external_origins = external_sources.get(relative)
         if external_origins is not None:
             rows.append(
                 GateSource(
@@ -59,7 +64,7 @@ def classify_gate_sources(
                     False,
                     "external checkout identity is recorded for separate validation; "
                     "content is not read or counted as repository-local code",
-                    external_origins,
+                    tuple(sorted(external_origins)),
                 )
             )
             continue
@@ -88,17 +93,6 @@ def classify_gate_sources(
                     True,
                     "well-known repository task-runner entrypoint",
                     origin_rows or ("well-known repository task-runner entrypoint",),
-                )
-            )
-            continue
-        if relative in task_scan.unresolved_module_candidates and relative not in entrypoint_paths:
-            rows.append(
-                GateSource(
-                    relative,
-                    "helper",
-                    False,
-                    "possible Python module target retained for inspection; unresolved PYTHONPATH cannot establish invocation",
-                    origin_rows,
                 )
             )
             continue
@@ -143,6 +137,17 @@ def classify_gate_sources(
                     True,
                     "executable scripts/ file has a shebang and is independently runnable",
                     origin_rows or ("executable scripts/ shebang",),
+                )
+            )
+            continue
+        if relative in task_scan.unresolved_module_candidates:
+            rows.append(
+                GateSource(
+                    relative,
+                    "helper",
+                    False,
+                    "possible Python module target retained for inspection; unresolved PYTHONPATH cannot establish invocation",
+                    origin_rows,
                 )
             )
             continue

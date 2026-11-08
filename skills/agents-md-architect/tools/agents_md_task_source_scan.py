@@ -138,7 +138,14 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                         Path(candidate).stem,
                     )
                     direct_python.setdefault(candidate, []).append(
-                        ModuleInvocation(candidate, module_name, roots, origin)
+                        ModuleInvocation(
+                            candidate,
+                            module_name,
+                            roots,
+                            origin,
+                            command_source.working_directory,
+                            command_source.checkout_context,
+                        )
                     )
                     if depth < MAX_WRAPPER_DEPTH:
                         pending.append((candidate, depth + 1, command_source))

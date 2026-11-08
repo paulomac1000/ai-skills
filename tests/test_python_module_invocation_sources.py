@@ -229,7 +229,7 @@ def test_import_file_budget_counts_unique_paths_across_contexts(tmp_path: Path) 
         issues=(),
     )
 
-    imported, issues = collect_imported_libraries(tmp_path, discover(tmp_path), task_sources)
+    imported, _external, issues = collect_imported_libraries(tmp_path, discover(tmp_path), task_sources)
 
     assert {"helper.py", "root-a/helper.py", "root-b/helper.py"} <= set(imported)
     assert not issues
@@ -251,7 +251,7 @@ def test_import_context_budget_fails_closed_after_distinct_file_budget(tmp_path:
         issues=(),
     )
 
-    _imported, issues = collect_imported_libraries(tmp_path, discover(tmp_path), task_sources)
+    _imported, _external, issues = collect_imported_libraries(tmp_path, discover(tmp_path), task_sources)
 
     assert any(f"{MAX_IMPORT_CONTEXTS} contexts" in issue for issue in issues)
 

@@ -11,6 +11,24 @@ from pathlib import Path
 from agents_md_source_types import CommandSource, ExternalCheckout, ExternalCheckoutKind
 
 
+def resolve_module_paths(
+    module: str,
+    roots: tuple[str, ...],
+    discovered_files: set[str],
+) -> tuple[tuple[str, str], ...]:
+    """Return discovered local module files under the declared import roots."""
+    relative_module = module.replace(".", "/")
+    matches: dict[str, str] = {}
+    for root in roots:
+        base = posixpath.normpath(posixpath.join(root, relative_module))
+        if base == ".." or base.startswith("../") or base.startswith("/"):
+            continue
+        for candidate in (f"{base}.py", f"{base}/__init__.py"):
+            if candidate in discovered_files:
+                matches[candidate] = module
+    return tuple(sorted(matches.items()))
+
+
 def pythonpath_roots(
     tokens: list[str], default: tuple[str, ...], source: CommandSource
 ) -> tuple[tuple[str, ...], str | None, tuple[str, ...]]:
@@ -26,7 +44,8 @@ def pythonpath_roots(
     prefixes: list[str] = []
     start = 0
     for index, character in enumerate(value):
-        if character == ";" or (character == ":" and (index != 1 or not value[0].isalpha())):
+        drive_colon = index == start + 1 and value[start].isalpha()
+        if character == ";" or (character == ":" and not drive_colon):
             prefixes.append(value[start:index])
             start = index + 1
     prefixes.append(value[start:])

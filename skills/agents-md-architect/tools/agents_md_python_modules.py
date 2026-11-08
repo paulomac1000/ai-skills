@@ -13,7 +13,9 @@ from agents_md_checkout_sources import (
     normalize_pythonpath_roots,
     pythonpath_roots,
     resolve_import_source_path,
+    resolve_module_paths,
 )
+from agents_md_python_imports import has_repository_module_namespace
 from agents_md_source_types import CommandSource, ModuleInvocation
 from discover_repository import Discovery
 
@@ -23,48 +25,6 @@ PYTHON_FLAGS_WITHOUT_VALUE = frozenset(
 )
 PYTHON_FLAGS_WITH_VALUE = frozenset({"-W", "-X", "--check-hash-based-pycs"})
 KNOWN_INSTALLED_MODULES: Final = frozenset({"pip"})
-
-
-def resolve_module_paths(
-    module: str,
-    roots: tuple[str, ...],
-    discovered_files: set[str],
-) -> tuple[tuple[str, str], ...]:
-    """Return discovered local module files under the declared import roots."""
-    relative_module = module.replace(".", "/")
-    matches: dict[str, str] = {}
-    for root in roots:
-        base = posixpath.normpath(posixpath.join(root, relative_module))
-        if base == ".." or base.startswith("../") or base.startswith("/"):
-            continue
-        for candidate in (f"{base}.py", f"{base}/__init__.py"):
-            if candidate in discovered_files:
-                matches[candidate] = module
-    return tuple(sorted(matches.items()))
-
-
-def _has_repository_module_namespace(
-    module: str,
-    roots: tuple[str, ...],
-    discovered_files: set[str],
-    discovered_symlinks: tuple[str, ...],
-) -> bool:
-    """Detect a local namespace whose requested module target is missing."""
-    namespace = module.split(".", 1)[0].replace(".", "/")
-    for root in roots:
-        base = posixpath.normpath(posixpath.join(root, namespace))
-        if base == ".." or base.startswith("../") or base.startswith("/"):
-            continue
-        if (
-            f"{base}.py" in discovered_files
-            or any(path.startswith(f"{base}/") for path in discovered_files)
-            or any(
-                link == base or link.startswith(f"{base}/") or base.startswith(f"{link}/")
-                for link in discovered_symlinks
-            )
-        ):
-            return True
-    return False
 
 
 def module_invocation_references(
@@ -210,7 +170,7 @@ def module_invocation_references(
     else:
         matches = ()
         initialized_prefixes = range(0)
-        local_namespace = _has_repository_module_namespace(module, roots, discovered_files, discovery.symlinks)
+        local_namespace = has_repository_module_namespace(module, roots, discovered_files, discovery.symlinks)
         known_external_module = module.split(".", 1)[0] in sys.stdlib_module_names | KNOWN_INSTALLED_MODULES
         if (
             not external_sources
@@ -236,7 +196,14 @@ def module_invocation_references(
                     external_sources.setdefault(external_path, set()).add(source.origin)
                 elif path is not None:
                     package_initializers.setdefault(path, []).append(
-                        ModuleInvocation(path, f"{package_name}.__init__", roots, source.origin)
+                        ModuleInvocation(
+                            path,
+                            f"{package_name}.__init__",
+                            roots,
+                            source.origin,
+                            source.working_directory,
+                            source.checkout_context,
+                        )
                     )
     if len(matches) > 1:
         issues.append(
@@ -244,7 +211,16 @@ def module_invocation_references(
             + ", ".join(path for path, _name in matches)
         )
     for candidate, resolved_name in matches:
-        references.setdefault(candidate, []).append(ModuleInvocation(candidate, resolved_name, roots, source.origin))
+        references.setdefault(candidate, []).append(
+            ModuleInvocation(
+                candidate,
+                resolved_name,
+                roots,
+                source.origin,
+                source.working_directory,
+                source.checkout_context,
+            )
+        )
     return (
         {path: tuple(values) for path, values in references.items()},
         {path: tuple(values) for path, values in package_initializers.items()},

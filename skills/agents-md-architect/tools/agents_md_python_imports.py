@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import posixpath
 import shlex
 from collections import deque
 from pathlib import Path
 
-from agents_md_checkout_sources import normalize_pythonpath_roots, pythonpath_roots
-from agents_md_python_modules import resolve_module_paths
+from agents_md_checkout_sources import (
+    normalize_pythonpath_roots,
+    pythonpath_roots,
+    resolve_import_source_path,
+    resolve_module_paths,
+)
 from agents_md_source_io import read_bounded
 from agents_md_source_types import (
     MAX_IMPORT_CONTEXTS,
@@ -61,6 +66,30 @@ def module_name_for_path(path: str, root: str) -> str | None:
     return ".".join(part for part in parts if part)
 
 
+def has_repository_module_namespace(
+    module: str,
+    roots: tuple[str, ...],
+    discovered_files: set[str],
+    discovered_symlinks: tuple[str, ...],
+) -> bool:
+    """Detect a local namespace whose requested module target is missing."""
+    namespace = module.split(".", 1)[0].replace(".", "/")
+    for root in roots:
+        base = posixpath.normpath(posixpath.join(root, namespace))
+        if base == ".." or base.startswith("../") or base.startswith("/"):
+            continue
+        if (
+            f"{base}.py" in discovered_files
+            or any(path.startswith(f"{base}/") for path in discovered_files)
+            or any(
+                link == base or link.startswith(f"{base}/") or base.startswith(f"{link}/")
+                for link in discovered_symlinks
+            )
+        ):
+            return True
+    return False
+
+
 def invocation_roots_for_script(
     path: str,
     source: CommandSource,
@@ -83,11 +112,12 @@ def collect_imported_libraries(
     root: Path,
     discovery: Discovery,
     task_sources: TaskSourceScan,
-) -> tuple[dict[str, tuple[str, ...]], tuple[str, ...]]:
+) -> tuple[dict[str, tuple[str, ...]], dict[str, tuple[str, ...]], tuple[str, ...]]:
     """Follow repository-local AST imports within explicit file/depth bounds."""
     discovered_files = set(discovery.files)
     direct_entrypoints = set(task_sources.references)
     imported_origins: dict[str, set[str]] = {}
+    external_origins: dict[str, set[str]] = {}
     issues: list[str] = []
     initial = [
         invocation
@@ -133,10 +163,28 @@ def collect_imported_libraries(
             issues.append(f"cannot inspect imports in {invocation.path!r}: {error}")
             continue
 
+        module_source = CommandSource(
+            invocation.path,
+            invocation.working_directory,
+            "",
+            invocation.origin,
+            invocation.checkout_context,
+        )
         for module, line_number in imports:
             matches: dict[str, str] = {}
             for import_root in invocation.import_roots:
-                matches.update(resolve_module_paths(module, (import_root,), discovered_files))
+                for path, resolved_module in resolve_module_paths(module, (import_root,), discovered_files):
+                    local_path, external_path, ownership_issue = resolve_import_source_path(
+                        module_source, import_root, path
+                    )
+                    if ownership_issue is not None:
+                        issues.append(
+                            f"cannot establish import ownership at {invocation.path}:{line_number}: {ownership_issue}"
+                        )
+                    elif external_path is not None:
+                        external_origins.setdefault(external_path, set()).add(f"{invocation.path}:{line_number}")
+                    elif local_path is not None:
+                        matches[local_path] = resolved_module
             if len(matches) > 1:
                 issues.append(
                     f"ambiguous repository import {module!r} at {invocation.path}:{line_number}: "
@@ -155,11 +203,58 @@ def collect_imported_libraries(
                 module_context = f"{resolved_module}.__init__" if Path(path).name == "__init__.py" else resolved_module
                 pending.append(
                     (
-                        ModuleInvocation(path, module_context, invocation.import_roots, origin),
+                        ModuleInvocation(
+                            path,
+                            module_context,
+                            invocation.import_roots,
+                            origin,
+                            invocation.working_directory,
+                            invocation.checkout_context,
+                        ),
                         depth + 1,
                     )
                 )
+            module_parts = module.split(".")
+            for import_root in invocation.import_roots:
+                for prefix_length in range(1, len(module_parts)):
+                    package_name = ".".join(module_parts[:prefix_length])
+                    package_path = posixpath.normpath(posixpath.join(import_root, package_name.replace(".", "/")))
+                    if package_path == ".." or package_path.startswith("../") or package_path.startswith("/"):
+                        continue
+                    initializer = f"{package_path}/__init__.py"
+                    if initializer not in discovered_files:
+                        continue
+                    local_path, external_path, ownership_issue = resolve_import_source_path(
+                        module_source, import_root, initializer
+                    )
+                    origin = f"{invocation.path}:{line_number}"
+                    if ownership_issue is not None:
+                        issues.append(f"cannot establish import ownership at {origin}: {ownership_issue}")
+                        continue
+                    if external_path is not None:
+                        external_origins.setdefault(external_path, set()).add(origin)
+                        continue
+                    if local_path is None:
+                        continue
+                    imported_origins.setdefault(local_path, set()).add(origin)
+                    if depth >= MAX_IMPORT_DEPTH:
+                        issues.append(f"Python import depth exceeds {MAX_IMPORT_DEPTH} at {local_path}")
+                        continue
+                    pending.append(
+                        (
+                            ModuleInvocation(
+                                local_path,
+                                f"{package_name}.__init__",
+                                invocation.import_roots,
+                                origin,
+                                invocation.working_directory,
+                                invocation.checkout_context,
+                            ),
+                            depth + 1,
+                        )
+                    )
     return (
         {path: tuple(sorted(origins)) for path, origins in imported_origins.items()},
+        {path: tuple(sorted(origins)) for path, origins in external_origins.items()},
         tuple(sorted(set(issues))),
     )

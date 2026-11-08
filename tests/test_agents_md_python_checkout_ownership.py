@@ -8,7 +8,9 @@ TOOLS = ROOT / "skills" / "agents-md-architect" / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
+from agents_md_checkout_sources import pythonpath_roots  # noqa: E402
 from agents_md_gate_sources import classify_gate_sources  # noqa: E402
+from agents_md_source_types import CommandSource  # noqa: E402
 from discover_repository import discover  # noqa: E402
 
 
@@ -119,6 +121,20 @@ def test_unresolved_absolute_pythonpath_reports_incomplete_inventory(tmp_path: P
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
 
     assert any("absolute PYTHONPATH" in issue and "unresolved" in issue for issue in inventory.issues)
+
+
+def test_pythonpath_splits_multiple_windows_absolute_roots(tmp_path: Path) -> None:
+    source = CommandSource("workflow.yml", ".", "", "workflow.yml:1")
+
+    roots, issue, unresolved_roots = pythonpath_roots(
+        [r"PYTHONPATH=C:\repo\.agents;D:\vendor", "python", "-m", "tools.validator"],
+        (".",),
+        source,
+    )
+
+    assert roots == (r"C:\repo\.agents", r"D:\vendor", ".")
+    assert issue is None
+    assert not unresolved_roots
 
 
 def test_module_under_external_root_checkout_is_not_counted_as_local(tmp_path: Path) -> None:
