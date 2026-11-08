@@ -2,121 +2,16 @@
 
 from __future__ import annotations
 
-import ntpath
 import posixpath
 import re
 from dataclasses import replace
-from pathlib import Path
 
-from agents_md_source_types import CommandSource, ExternalCheckout, ExternalCheckoutKind
-
-
-def resolve_module_paths(
-    module: str,
-    roots: tuple[str, ...],
-    discovered_files: set[str],
-) -> tuple[tuple[str, str], ...]:
-    """Return discovered local module files under the declared import roots."""
-    relative_module = module.replace(".", "/")
-    matches: dict[str, str] = {}
-    for root in roots:
-        base = posixpath.normpath(posixpath.join(root, relative_module))
-        if base == ".." or base.startswith("../") or base.startswith("/"):
-            continue
-        for candidate in (f"{base}.py", f"{base}/__init__.py"):
-            if candidate in discovered_files:
-                matches[candidate] = module
-    return tuple(sorted(matches.items()))
-
-
-def pythonpath_roots(
-    tokens: list[str], default: tuple[str, ...], source: CommandSource
-) -> tuple[tuple[str, ...], str | None, tuple[str, ...]]:
-    """Resolve static import roots from command assignments and workflow environment."""
-    assignments = [token.partition("=")[2] for token in tokens if token.startswith("PYTHONPATH=")]
-    value = assignments[-1] if assignments else source.pythonpath
-    roots: list[str] = []
-    if value is None:
-        return default, None, ()
-
-    unresolved_roots: list[str] = []
-
-    prefixes: list[str] = []
-    start = 0
-    for index, character in enumerate(value):
-        drive_colon = index == start + 1 and value[start].isalpha()
-        if character == ";" or (character == ":" and not drive_colon):
-            prefixes.append(value[start:index])
-            start = index + 1
-    prefixes.append(value[start:])
-
-    for raw_prefix in prefixes:
-        prefix = raw_prefix.strip()
-        pythonpath_base = default[-1]
-        workspace_root = False
-        unresolved_variable = re.match(r"^\$[A-Za-z_][A-Za-z0-9_]*(?:/|$)", prefix)
-        if re.match(r"^\$PWD(?:/|$)", prefix):
-            prefix = prefix.removeprefix("$PWD").removeprefix("/")
-        elif re.match(r"^\$\{PWD\}(?:/|$)", prefix):
-            prefix = prefix.removeprefix("${PWD}").removeprefix("/")
-        elif re.match(r"^\$GITHUB_WORKSPACE(?:/|$)", prefix):
-            aliases = dict(source.checkout_context.aliases) if source.checkout_context is not None else {}
-            if aliases.get(".") is not None or "." not in aliases:
-                return (), f"PYTHONPATH workspace root is unresolved at {value!r}", ()
-            prefix = prefix.removeprefix("$GITHUB_WORKSPACE").removeprefix("/")
-            pythonpath_base = "."
-            workspace_root = True
-        if "$" in prefix or "${{" in prefix:
-            if unresolved_variable is not None:
-                suffix = raw_prefix[unresolved_variable.end() :].lstrip("/")
-                if suffix:
-                    possible_root = posixpath.normpath(posixpath.join(pythonpath_base, suffix))
-                    if possible_root != ".." and not possible_root.startswith("../"):
-                        unresolved_roots.append(possible_root)
-            return (), f"PYTHONPATH is unresolved at {value!r}", tuple(dict.fromkeys(unresolved_roots))
-        if not prefix or prefix == ".":
-            roots.extend((pythonpath_base,) if workspace_root else default)
-            continue
-        if Path(prefix).is_absolute() or ntpath.isabs(prefix):
-            roots.append(prefix)
-            continue
-        normalized = posixpath.normpath(posixpath.join(pythonpath_base, prefix))
-        if normalized == ".." or normalized.startswith("../"):
-            return (), f"PYTHONPATH escapes the repository at {value!r}", ()
-        roots.append(normalized)
-
-    roots.extend(default)
-    return tuple(dict.fromkeys(roots)), None, ()
-
-
-def normalize_pythonpath_roots(
-    roots: tuple[str, ...], repository_root: Path, origin: str
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Resolve absolute import roots against the actual checkout without prefix matching."""
-    checkout_root = repository_root.resolve()
-    normalized: list[str] = []
-    issues: list[str] = []
-    for root in roots:
-        if not Path(root).is_absolute():
-            if ntpath.isabs(root):
-                issues.append(f"absolute PYTHONPATH root uses an unresolvable path form at {origin}: {root!r}")
-            else:
-                normalized.append(root)
-            continue
-        try:
-            resolved_root = Path(root).resolve(strict=True)
-        except (OSError, RuntimeError):
-            issues.append(f"absolute PYTHONPATH root ownership is unresolved at {origin}: {root!r}")
-            continue
-        if not resolved_root.is_dir():
-            issues.append(f"absolute PYTHONPATH root is not a directory at {origin}: {root!r}")
-            continue
-        try:
-            relative_root = resolved_root.relative_to(checkout_root)
-        except ValueError:
-            continue
-        normalized.append(relative_root.as_posix() or ".")
-    return tuple(dict.fromkeys(normalized)), tuple(issues)
+from agents_md_source_types import (
+    CommandSource,
+    ExternalCheckout,
+    ExternalCheckoutKind,
+    ImportRoot,
+)
 
 
 def classify_checkout(
@@ -237,34 +132,42 @@ def resolve_checkout_source_path(source: CommandSource, raw_path: str) -> tuple[
     return workspace_candidate, None, None
 
 
-def resolve_import_source_path(
-    source: CommandSource,
-    import_root: str,
-    relative_path: str,
-) -> tuple[str | None, str | None, str | None]:
-    """Bind a resolved module path to the checkout that owns its import root."""
+def _local_checkout_prefix(source: CommandSource) -> str | None:
+    """Return the workspace alias of the local checkout containing the command cwd."""
     context = source.checkout_context
     if context is None:
-        return relative_path, None, None
-
-    local_checkout_prefix: str | None = None
+        return None
     for alias, checkout in context.aliases:
         if alias == "." or checkout is not None:
             continue
         if context.workspace_working_directory == alias or context.workspace_working_directory.startswith(f"{alias}/"):
-            normalized_directory = normalize_checkout_working_directory(context.workspace_working_directory, (alias,))
-            if normalized_directory == source.working_directory:
-                local_checkout_prefix = alias
-                break
+            if (
+                normalize_checkout_working_directory(context.workspace_working_directory, (alias,))
+                == source.working_directory
+            ):
+                return alias
+    return None
 
-    working_directory = source.working_directory
-    rooted_in_working_directory = (
-        working_directory == "." or import_root == working_directory or import_root.startswith(f"{working_directory}/")
-    )
+
+def resolve_import_source_path(
+    source: CommandSource,
+    root: ImportRoot,
+    relative_path: str,
+) -> tuple[str | None, str | None, str | None]:
+    """Bind a resolved module path to the checkout that owns its import root.
+
+    Candidate-relative roots are re-anchored into their local checkout alias
+    before ownership resolution; workspace-relative roots are resolved as-is.
+    Local ownership returns the repository-relative (alias-stripped) path.
+    """
+    context = source.checkout_context
+    if context is None:
+        return relative_path, None, None
     workspace_path = relative_path
-    if local_checkout_prefix is not None and rooted_in_working_directory:
-        workspace_path = posixpath.join(local_checkout_prefix, relative_path)
-
+    if not root.workspace_relative:
+        local_prefix = _local_checkout_prefix(source)
+        if local_prefix is not None:
+            workspace_path = posixpath.join(local_prefix, relative_path)
     workspace_context = replace(context, workspace_working_directory=".")
     workspace_source = replace(source, working_directory=".", checkout_context=workspace_context)
     return resolve_checkout_source_path(workspace_source, workspace_path)

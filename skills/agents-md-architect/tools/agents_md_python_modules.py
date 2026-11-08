@@ -9,13 +9,9 @@ import sys
 from pathlib import Path
 from typing import Final
 
-from agents_md_checkout_sources import (
-    normalize_pythonpath_roots,
-    pythonpath_roots,
-    resolve_import_source_path,
-    resolve_module_paths,
-)
+from agents_md_checkout_sources import resolve_import_source_path
 from agents_md_python_imports import has_repository_module_namespace
+from agents_md_python_roots import normalize_pythonpath_roots, pythonpath_roots, resolve_module_paths
 from agents_md_source_types import CommandSource, ModuleInvocation
 from discover_repository import Discovery
 
@@ -106,7 +102,7 @@ def module_invocation_references(
     module_targets: dict[str, str] = {}
     external_sources: dict[str, set[str]] = {}
     for import_root in roots:
-        for candidate, resolved_name in resolve_module_paths(module, (import_root,), discovered_files):
+        for candidate, resolved_name in resolve_module_paths(module, (import_root.path,), discovered_files):
             path, external_path, ownership_issue = resolve_import_source_path(source, import_root, candidate)
             if ownership_issue is not None:
                 issues.append(ownership_issue)
@@ -119,13 +115,14 @@ def module_invocation_references(
         (path, name) for path, name in module_targets.items() if path.endswith("/__init__.py")
     )
     package_mains: dict[str, str] = {}
-    for root in roots:
+    for import_root in roots:
+        root = import_root.path
         package_path = posixpath.normpath(posixpath.join(root, relative_module))
         if package_path == ".." or package_path.startswith("../") or package_path.startswith("/"):
             continue
         main_path = f"{package_path}/__main__.py"
         if main_path in discovered_files:
-            path, external_path, ownership_issue = resolve_import_source_path(source, root, main_path)
+            path, external_path, ownership_issue = resolve_import_source_path(source, import_root, main_path)
             if ownership_issue is not None:
                 issues.append(ownership_issue)
             elif external_path is not None:
@@ -170,18 +167,21 @@ def module_invocation_references(
     else:
         matches = ()
         initialized_prefixes = range(0)
-        local_namespace = has_repository_module_namespace(module, roots, discovered_files, discovery.symlinks)
+        local_namespace = has_repository_module_namespace(
+            module, tuple(root.path for root in roots), discovered_files, discovery.symlinks
+        )
         known_external_module = module.split(".", 1)[0] in sys.stdlib_module_names | KNOWN_INSTALLED_MODULES
         if (
             not external_sources
-            and (any(root != "." for root in roots) or local_namespace)
+            and (any(root.path != "." for root in roots) or local_namespace)
             and (not known_external_module or local_namespace)
         ):
             issues.append(
                 f"invoked module {module!r} not found under declared repository import roots at {source.origin}"
             )
 
-    for root in roots:
+    for import_root in roots:
+        root = import_root.path
         for prefix_length in initialized_prefixes:
             package_name = ".".join(parts[:prefix_length])
             package_path = posixpath.normpath(posixpath.join(root, package_name.replace(".", "/")))
@@ -189,7 +189,7 @@ def module_invocation_references(
                 continue
             initializer = f"{package_path}/__init__.py"
             if initializer in discovered_files:
-                path, external_path, ownership_issue = resolve_import_source_path(source, root, initializer)
+                path, external_path, ownership_issue = resolve_import_source_path(source, import_root, initializer)
                 if ownership_issue is not None:
                     issues.append(ownership_issue)
                 elif external_path is not None:

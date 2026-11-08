@@ -8,9 +8,9 @@ TOOLS = ROOT / "skills" / "agents-md-architect" / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from agents_md_checkout_sources import pythonpath_roots  # noqa: E402
 from agents_md_gate_sources import classify_gate_sources  # noqa: E402
-from agents_md_source_types import CommandSource  # noqa: E402
+from agents_md_python_roots import pythonpath_roots  # noqa: E402
+from agents_md_source_types import CommandSource, ImportRoot  # noqa: E402
 from discover_repository import discover  # noqa: E402
 
 
@@ -132,7 +132,11 @@ def test_pythonpath_splits_multiple_windows_absolute_roots(tmp_path: Path) -> No
         source,
     )
 
-    assert roots == (r"C:\repo\.agents", r"D:\vendor", ".")
+    assert roots == (
+        ImportRoot(r"C:\repo\.agents", True),
+        ImportRoot(r"D:\vendor", True),
+        ImportRoot("."),
+    )
     assert issue is None
     assert not unresolved_roots
 

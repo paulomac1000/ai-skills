@@ -5,22 +5,19 @@ from __future__ import annotations
 import ast
 import importlib.util
 import posixpath
-import shlex
 from collections import deque
 from pathlib import Path
 
-from agents_md_checkout_sources import (
-    normalize_pythonpath_roots,
-    pythonpath_roots,
-    resolve_import_source_path,
-    resolve_module_paths,
-)
+from agents_md_checkout_sources import resolve_import_source_path
+from agents_md_python_roots import resolve_module_paths
 from agents_md_source_io import read_bounded
 from agents_md_source_types import (
     MAX_IMPORT_CONTEXTS,
     MAX_IMPORT_DEPTH,
     MAX_RELATED_SOURCE_FILES,
+    CheckoutContext,
     CommandSource,
+    ImportRoot,
     ModuleInvocation,
     TaskSourceScan,
 )
@@ -90,24 +87,6 @@ def has_repository_module_namespace(
     return False
 
 
-def invocation_roots_for_script(
-    path: str,
-    source: CommandSource,
-    repository_root: Path,
-) -> tuple[tuple[str, ...], str | None]:
-    """Resolve direct-script import roots and preserve unresolved PYTHONPATH evidence."""
-    try:
-        tokens = shlex.split(source.command, posix=True)
-    except ValueError:
-        tokens = []
-    default = (Path(path).parent.as_posix() or ".", source.working_directory)
-    roots, issue, _unresolved_roots = pythonpath_roots(tokens, default, source)
-    if issue is not None:
-        return roots, f"{issue} at {source.origin}"
-    normalized_roots, root_issues = normalize_pythonpath_roots(roots, repository_root, source.origin)
-    return normalized_roots, "; ".join(root_issues) if root_issues else None
-
-
 def collect_imported_libraries(
     root: Path,
     discovery: Discovery,
@@ -129,14 +108,20 @@ def collect_imported_libraries(
         for invocation in invocations
     ]
     pending = deque((invocation, 0) for invocation in initial)
-    visited: set[tuple[str, str, tuple[str, ...]]] = set()
+    visited: set[tuple[str, str, tuple[ImportRoot, ...], str, CheckoutContext | None]] = set()
     visited_files: set[str] = set()
     for path, invocations in task_sources.package_initializers.items():
         imported_origins.setdefault(path, set()).update(invocation.origin for invocation in invocations)
 
     while pending:
         invocation, depth = pending.popleft()
-        context_key = (invocation.path, invocation.module, invocation.import_roots)
+        context_key = (
+            invocation.path,
+            invocation.module,
+            invocation.import_roots,
+            invocation.working_directory,
+            invocation.checkout_context,
+        )
         if context_key in visited:
             continue
         if len(visited) >= MAX_IMPORT_CONTEXTS:
@@ -173,7 +158,7 @@ def collect_imported_libraries(
         for module, line_number in imports:
             matches: dict[str, str] = {}
             for import_root in invocation.import_roots:
-                for path, resolved_module in resolve_module_paths(module, (import_root,), discovered_files):
+                for path, resolved_module in resolve_module_paths(module, (import_root.path,), discovered_files):
                     local_path, external_path, ownership_issue = resolve_import_source_path(
                         module_source, import_root, path
                     )
@@ -218,7 +203,7 @@ def collect_imported_libraries(
             for import_root in invocation.import_roots:
                 for prefix_length in range(1, len(module_parts)):
                     package_name = ".".join(module_parts[:prefix_length])
-                    package_path = posixpath.normpath(posixpath.join(import_root, package_name.replace(".", "/")))
+                    package_path = posixpath.normpath(posixpath.join(import_root.path, package_name.replace(".", "/")))
                     if package_path == ".." or package_path.startswith("../") or package_path.startswith("/"):
                         continue
                     initializer = f"{package_path}/__init__.py"

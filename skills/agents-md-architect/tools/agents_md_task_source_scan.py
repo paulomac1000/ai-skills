@@ -11,8 +11,9 @@ from agents_md_checkout_sources import (
 )
 from agents_md_completion_evidence import public_task_invocations
 from agents_md_python_evidence import _extract_python_invocations
-from agents_md_python_imports import invocation_roots_for_script, module_name_for_path
+from agents_md_python_imports import module_name_for_path
 from agents_md_python_modules import module_invocation_references
+from agents_md_python_roots import invocation_roots_for_script
 from agents_md_shell_evidence import _extract_gate_invocations
 from agents_md_source_io import command_origin, public_task_surfaces, read_bounded
 from agents_md_source_types import (
@@ -134,7 +135,7 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                     if pythonpath_issue is not None:
                         issues.append(pythonpath_issue)
                     module_name = next(
-                        (found for prefix in roots if (found := module_name_for_path(candidate, prefix))),
+                        (found for prefix in roots if (found := module_name_for_path(candidate, prefix.path))),
                         Path(candidate).stem,
                     )
                     direct_python.setdefault(candidate, []).append(

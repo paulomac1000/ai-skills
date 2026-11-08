@@ -56,10 +56,18 @@ class GateSourceInventory:
 
 
 @dataclass(frozen=True)
+class ImportRoot:
+    """One PYTHONPATH root plus the frame its paths are expressed in."""
+
+    path: str
+    workspace_relative: bool = False
+
+
+@dataclass(frozen=True)
 class ModuleInvocation:
     path: str
     module: str
-    import_roots: tuple[str, ...]
+    import_roots: tuple[ImportRoot, ...]
     origin: str
     working_directory: str = "."
     checkout_context: CheckoutContext | None = None

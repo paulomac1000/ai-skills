@@ -179,3 +179,43 @@ def test_unresolved_pythonpath_does_not_downgrade_direct_entrypoint(tmp_path: Pa
     assert row.counted is True
     assert inventory.count == 2
     assert any("PYTHONPATH" in issue and "unresolved" in issue for issue in inventory.issues)
+
+
+def test_import_dedup_preserves_distinct_checkout_ownership(tmp_path: Path) -> None:
+    (tmp_path / "entry.py").write_text("import helper\n", encoding="utf-8")
+    helper = tmp_path / "vendor" / "helper.py"
+    helper.parent.mkdir()
+    helper.write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  owned:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          repository: example/vendor\n"
+        "          ref: abcdef0123456789abcdef0123456789abcdef01\n"
+        "          path: vendor\n"
+        "      - run: PYTHONPATH=vendor python -m entry\n"
+        "  local:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - run: PYTHONPATH=vendor python -m entry\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert any(
+        source.path == "external:example/vendor@abcdef0123456789abcdef0123456789abcdef01/helper.py"
+        and source.classification == "excluded"
+        for source in inventory.sources
+    )
+    assert any(
+        source.path == "vendor/helper.py" and source.classification == "library" and not source.counted
+        for source in inventory.sources
+    )
+    assert not inventory.issues

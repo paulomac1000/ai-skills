@@ -12,7 +12,12 @@ if str(TOOLS) not in sys.path:
 
 from agents_md_gate_sources import classify_gate_sources  # noqa: E402
 from agents_md_python_imports import collect_imported_libraries  # noqa: E402
-from agents_md_source_types import MAX_IMPORT_CONTEXTS, ModuleInvocation, TaskSourceScan  # noqa: E402
+from agents_md_source_types import (  # noqa: E402
+    MAX_IMPORT_CONTEXTS,
+    ImportRoot,
+    ModuleInvocation,
+    TaskSourceScan,
+)
 from discover_repository import discover  # noqa: E402
 
 
@@ -214,7 +219,11 @@ def test_import_file_budget_counts_unique_paths_across_contexts(tmp_path: Path) 
         ModuleInvocation(
             "entry.py",
             f"entry_{index}",
-            ("root-a",) if index == 255 else ("root-b",) if index == 256 else (".",),
+            (ImportRoot("root-a"),)
+            if index == 255
+            else (ImportRoot("root-b"),)
+            if index == 256
+            else (ImportRoot("."),),
             f"workflow:{index}",
         )
         for index in range(257)
@@ -238,7 +247,7 @@ def test_import_file_budget_counts_unique_paths_across_contexts(tmp_path: Path) 
 def test_import_context_budget_fails_closed_after_distinct_file_budget(tmp_path: Path) -> None:
     (tmp_path / "entry.py").write_text("VALUE = 1\n", encoding="utf-8")
     invocations = tuple(
-        ModuleInvocation("entry.py", f"entry_{index}", (".",), f"workflow:{index}")
+        ModuleInvocation("entry.py", f"entry_{index}", (ImportRoot("."),), f"workflow:{index}")
         for index in range(MAX_IMPORT_CONTEXTS + 1)
     )
     task_sources = TaskSourceScan(

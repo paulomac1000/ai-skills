@@ -80,6 +80,7 @@ required:
 - tools/agents_md_checkout_sources.py
 - tools/agents_md_python_modules.py
 - tools/agents_md_python_imports.py
+- tools/agents_md_python_roots.py
 - tools/agents_md_task_source_scan.py
 - tools/agents_md_workflow_contexts.py
 - tools/agents_md_types.py
