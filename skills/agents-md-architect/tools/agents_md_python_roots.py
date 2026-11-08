@@ -121,7 +121,7 @@ def normalize_pythonpath_roots(
         except ValueError:
             continue
         repo_relative = relative_root.as_posix() or "."
-        normalized[(repo_relative, True)] = ImportRoot(repo_relative, True)
+        normalized[(repo_relative, False)] = ImportRoot(repo_relative)
     return tuple(normalized.values()), tuple(issues)
 
 

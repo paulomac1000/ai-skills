@@ -303,3 +303,42 @@ def test_suffixed_github_workspace_pythonpath_keeps_external_vendor_ownership(tm
         for source in inventory.sources
     )
     assert not inventory.issues
+
+
+def test_normalized_absolute_root_stays_in_candidate_checkout(tmp_path: Path) -> None:
+    (tmp_path / "entry.py").write_text("import helper\n", encoding="utf-8")
+    helper = tmp_path / "lib" / "helper.py"
+    helper.parent.mkdir()
+    helper.write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          repository: example/authority\n"
+        "          ref: 0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          path: candidate\n"
+        "      - name: Invoke absolute candidate root\n"
+        "        working-directory: candidate\n"
+        "        env:\n"
+        f"          PYTHONPATH: {tmp_path.resolve() / 'lib'}\n"
+        "        run: python entry.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == "lib/helper.py")
+    assert row.classification == "library"
+    assert row.counted is False
+    assert not any(
+        source.path == "external:example/authority@0123456789abcdef0123456789abcdef01234567/lib/helper.py"
+        for source in inventory.sources
+    )
+    assert not inventory.issues
