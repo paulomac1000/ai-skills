@@ -248,3 +248,58 @@ def test_imported_entrypoint_is_traversed_under_importing_context(tmp_path: Path
     assert row.classification == "library"
     assert row.counted is False
     assert not inventory.issues
+
+
+def test_symlinked_imported_file_reports_incomplete_inventory(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "helper_target.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "entry.py").write_text("import helper\n", encoding="utf-8")
+    (tmp_path / "helper.py").symlink_to(outside / "helper_target.py")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: python entry.py\n",
+        encoding="utf-8",
+    )
+
+    discovery = discover(tmp_path)
+    inventory = classify_gate_sources(tmp_path, discovery, limit=64)
+
+    assert any("symlink" in issue and "helper" in issue for issue in inventory.issues)
+    assert not any(source.path == "helper.py" for source in inventory.sources)
+
+
+def test_symlinked_package_directory_reports_incomplete_inventory(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "mod.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "entry.py").write_text("import pkg.mod\n", encoding="utf-8")
+    (tmp_path / "pkg").symlink_to(outside, target_is_directory=True)
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: python entry.py\n",
+        encoding="utf-8",
+    )
+
+    discovery = discover(tmp_path)
+    inventory = classify_gate_sources(tmp_path, discovery, limit=64)
+
+    assert any("symlink" in issue and "'pkg'" in issue for issue in inventory.issues)
+    assert not any(source.path.startswith("pkg/") for source in inventory.sources)
+
+
+def test_ordinary_missing_module_is_not_reported_as_symlink(tmp_path: Path) -> None:
+    (tmp_path / "entry.py").write_text("import json\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: python entry.py\n",
+        encoding="utf-8",
+    )
+
+    discovery = discover(tmp_path)
+    inventory = classify_gate_sources(tmp_path, discovery, limit=64)
+
+    assert not any("symlink" in issue for issue in inventory.issues)

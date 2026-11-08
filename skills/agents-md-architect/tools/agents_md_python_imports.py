@@ -156,6 +156,22 @@ def collect_imported_libraries(
         )
         for module, line_number in imports:
             matches: dict[str, str] = {}
+            shadowing = sorted(
+                {
+                    link
+                    for link in discovery.symlinks
+                    for import_root in invocation.import_roots
+                    for base in (posixpath.normpath(posixpath.join(import_root.path, module.replace(".", "/"))),)
+                    for candidate in (base, f"{base}.py", f"{base}/__init__.py")
+                    if link == candidate or candidate.startswith(f"{link}/")
+                }
+            )
+            if shadowing:
+                issues.append(
+                    f"imported dependency {module!r} at {invocation.path}:{line_number} "
+                    f"resolves to repository symlink(s) {', '.join(repr(link) for link in shadowing)}; "
+                    "the target is outside the audit read boundary"
+                )
             for import_root in invocation.import_roots:
                 for path, resolved_module in resolve_module_paths(module, (import_root.path,), discovered_files):
                     local_path, external_path, ownership_issue = resolve_import_source_path(
