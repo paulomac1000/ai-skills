@@ -6,6 +6,7 @@ import posixpath
 import re
 from dataclasses import replace
 
+from agents_md_python_roots import resolve_module_paths
 from agents_md_source_types import (
     CommandSource,
     ExternalCheckout,
@@ -187,3 +188,30 @@ def normalize_checkout_working_directory(working_directory: str, aliases: tuple[
         if normalized.startswith(f"{alias}/"):
             return normalized[len(alias) + 1 :]
     return normalized
+
+
+def record_external_only_candidates(
+    source: CommandSource,
+    roots: tuple[ImportRoot, ...],
+    module: str,
+    relative_module: str,
+    external_sources: dict[str, set[str]],
+) -> None:
+    """Record external ownership when the invocation resolves nowhere candidate-locally.
+
+    Every root that maps into an external checkout contributes its identity regardless
+    of candidate-local lookalikes, so external-only invocations stay visible in the
+    evidence instead of returning a silent complete audit.
+    """
+    for import_root in roots:
+        for candidate, _resolved_name in resolve_module_paths(module, (import_root.path,)):
+            path, external_path, ownership_issue = resolve_import_source_path(source, import_root, candidate)
+            if ownership_issue is None and external_path is not None:
+                external_sources.setdefault(external_path, set()).add(source.origin)
+        package_path = posixpath.normpath(posixpath.join(import_root.path, relative_module))
+        if package_path != ".." and not package_path.startswith("../") and not package_path.startswith("/"):
+            path, external_path, ownership_issue = resolve_import_source_path(
+                source, import_root, f"{package_path}/__main__.py"
+            )
+            if ownership_issue is None and external_path is not None:
+                external_sources.setdefault(external_path, set()).add(source.origin)

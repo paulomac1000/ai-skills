@@ -43,6 +43,10 @@ def pythonpath_roots(
         return tuple(ImportRoot(root) for root in dict.fromkeys(default)), None, ()
 
     roots: dict[tuple[str, bool], ImportRoot] = {}
+    # The invocation directory precedes every declared PYTHONPATH root in the
+    # runtime resolution order, so the default root is seeded first.
+    for root in default:
+        roots.setdefault((root, False), ImportRoot(root))
     unresolved_roots: list[str] = []
 
     prefixes: list[str] = []
@@ -93,8 +97,6 @@ def pythonpath_roots(
             return (), f"PYTHONPATH escapes the repository at {value!r}", ()
         roots[(normalized, workspace_root)] = ImportRoot(normalized, workspace_root)
 
-    for root in default:
-        roots.setdefault((root, False), ImportRoot(root))
     return tuple(roots.values()), None, ()
 
 
@@ -145,3 +147,30 @@ def invocation_roots_for_script(
         return roots, f"{issue} at {source.origin}"
     normalized_roots, root_issues = normalize_pythonpath_roots(roots, repository_root, source.origin)
     return normalized_roots, "; ".join(root_issues) if root_issues else None
+
+
+def _shadow_issues(
+    external_candidates: list[tuple[int, str]], first_local_index: int | None, module: str, origin: str
+) -> list[str]:
+    """Fail closed when an earlier external root could own the invoked module."""
+    if first_local_index is None:
+        return []
+    return [
+        f"external import root may shadow the invoked module {module!r} at {origin}: {external_path}"
+        for root_index, external_path in external_candidates
+        if root_index < first_local_index
+    ]
+
+
+def _record_shadows(
+    external_candidates: list[tuple[int, str]],
+    first_local_index: int | None,
+    external_sources: dict[str, set[str]],
+    source_origin: str,
+) -> None:
+    """Record external ownership for candidates preceding the first local match."""
+    if first_local_index is None:
+        return
+    for root_index, external_path in external_candidates:
+        if root_index < first_local_index:
+            external_sources.setdefault(external_path, set()).add(source_origin)

@@ -399,3 +399,32 @@ def test_external_only_package_main_records_external_identity(tmp_path: Path) ->
         for source in inventory.sources
     )
     assert not inventory.issues
+
+
+def test_external_root_preceding_local_match_fails_closed(tmp_path: Path) -> None:
+    """Review r1 F1: an earlier external root must not be silently bypassed by a later local lookalike."""
+    lib = tmp_path / "local_modules"
+    lib.mkdir()
+    (lib / "entry.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          repository: example/vendor\n"
+        "          ref: abcdef0123456789abcdef0123456789abcdef01\n"
+        "          path: vendor\n"
+        "      - run: PYTHONPATH=vendor:local_modules python -m entry\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert inventory.issues
+    assert any(
+        source.path == "external:example/vendor@abcdef0123456789abcdef0123456789abcdef01/entry.py"
+        for source in inventory.sources
+    )
