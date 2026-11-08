@@ -51,9 +51,7 @@ def _commands_from_surface(
             for reference in _LOCAL_ACTION_USES.findall(text):
                 target = reference.removeprefix("./").rstrip("/")
                 resolved_workflow = reference.removeprefix("./") in discovery_files
-                resolved_action = any(
-                    f"{target}/action.{kind}" in discovery_files for kind in ("yml", "yaml")
-                )
+                resolved_action = any(f"{target}/action.{kind}" in discovery_files for kind in ("yml", "yaml"))
                 if not resolved_workflow and not resolved_action:
                     scan = WorkflowCommandScan(
                         scan.commands,
