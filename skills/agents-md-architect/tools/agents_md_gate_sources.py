@@ -91,7 +91,7 @@ def classify_gate_sources(
                 )
             )
             continue
-        if relative in task_scan.unresolved_module_candidates:
+        if relative in task_scan.unresolved_module_candidates and relative not in entrypoint_paths:
             rows.append(
                 GateSource(
                     relative,

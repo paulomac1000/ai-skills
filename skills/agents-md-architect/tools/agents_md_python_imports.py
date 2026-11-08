@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import shlex
 from collections import deque
 from pathlib import Path
 
+from agents_md_checkout_sources import normalize_pythonpath_roots, pythonpath_roots
 from agents_md_python_modules import resolve_module_paths
 from agents_md_source_io import read_bounded
 from agents_md_source_types import (
     MAX_IMPORT_CONTEXTS,
     MAX_IMPORT_DEPTH,
     MAX_RELATED_SOURCE_FILES,
+    CommandSource,
     ModuleInvocation,
     TaskSourceScan,
 )
@@ -40,6 +43,40 @@ def imported_module_names(module_name: str, text: str) -> tuple[tuple[str, int],
                 modules.add((imported, node.lineno))
                 modules.update((f"{imported}.{alias.name}", node.lineno) for alias in node.names if alias.name != "*")
     return tuple(sorted(modules))
+
+
+def module_name_for_path(path: str, root: str) -> str | None:
+    """Derive a Python import name when a source path is under one import root."""
+    try:
+        relative = Path(path).relative_to(Path(root))
+    except ValueError:
+        return None
+    parts = list(relative.parts)
+    if not parts:
+        return None
+    if parts[-1] == "__init__.py":
+        parts.pop()
+    else:
+        parts[-1] = Path(parts[-1]).stem
+    return ".".join(part for part in parts if part)
+
+
+def invocation_roots_for_script(
+    path: str,
+    source: CommandSource,
+    repository_root: Path,
+) -> tuple[tuple[str, ...], str | None]:
+    """Resolve direct-script import roots and preserve unresolved PYTHONPATH evidence."""
+    try:
+        tokens = shlex.split(source.command, posix=True)
+    except ValueError:
+        tokens = []
+    default = (Path(path).parent.as_posix() or ".", source.working_directory)
+    roots, issue, _unresolved_roots = pythonpath_roots(tokens, default, source)
+    if issue is not None:
+        return roots, f"{issue} at {source.origin}"
+    normalized_roots, root_issues = normalize_pythonpath_roots(roots, repository_root, source.origin)
+    return normalized_roots, "; ".join(root_issues) if root_issues else None
 
 
 def collect_imported_libraries(
@@ -115,9 +152,10 @@ def collect_imported_libraries(
                 if depth >= MAX_IMPORT_DEPTH:
                     issues.append(f"Python import depth exceeds {MAX_IMPORT_DEPTH} at {path}")
                     continue
+                module_context = f"{resolved_module}.__init__" if Path(path).name == "__init__.py" else resolved_module
                 pending.append(
                     (
-                        ModuleInvocation(path, resolved_module, invocation.import_roots, origin),
+                        ModuleInvocation(path, module_context, invocation.import_roots, origin),
                         depth + 1,
                     )
                 )

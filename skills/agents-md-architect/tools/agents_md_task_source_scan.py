@@ -11,11 +11,8 @@ from agents_md_checkout_sources import (
 )
 from agents_md_completion_evidence import public_task_invocations
 from agents_md_python_evidence import _extract_python_invocations
-from agents_md_python_modules import (
-    invocation_roots_for_script,
-    module_invocation_references,
-    module_name_for_path,
-)
+from agents_md_python_imports import invocation_roots_for_script, module_name_for_path
+from agents_md_python_modules import module_invocation_references
 from agents_md_shell_evidence import _extract_gate_invocations
 from agents_md_source_io import command_origin, public_task_surfaces, read_bounded
 from agents_md_source_types import (
@@ -133,7 +130,7 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                     continue
                 references.setdefault(candidate, set()).add(origin)
                 if suffix == ".py":
-                    roots, pythonpath_issue = invocation_roots_for_script(candidate, command_source)
+                    roots, pythonpath_issue = invocation_roots_for_script(candidate, command_source, root)
                     if pythonpath_issue is not None:
                         issues.append(pythonpath_issue)
                     module_name = next(
@@ -155,12 +152,18 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                     else:
                         issues.append(f"wrapper depth exceeds {MAX_WRAPPER_DEPTH} at {origin} -> {candidate}")
 
-            module_references, module_initializers, module_issues, possible_module_paths = module_invocation_references(
-                command_source, discovery
-            )
+            (
+                module_references,
+                module_initializers,
+                module_issues,
+                possible_module_paths,
+                external_module_sources,
+            ) = module_invocation_references(command_source, discovery)
             issues.extend(module_issues)
             for candidate in possible_module_paths:
                 unresolved_module_candidates.setdefault(candidate, set()).add(command_source.origin)
+            for candidate, origins in external_module_sources.items():
+                external_sources.setdefault(candidate, set()).update(origins)
             for candidate, invocations in module_initializers.items():
                 package_initializers.setdefault(candidate, []).extend(invocations)
             for candidate, invocations in module_references.items():

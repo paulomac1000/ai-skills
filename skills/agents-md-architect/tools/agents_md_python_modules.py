@@ -5,8 +5,15 @@ from __future__ import annotations
 import posixpath
 import re
 import shlex
+import sys
 from pathlib import Path
+from typing import Final
 
+from agents_md_checkout_sources import (
+    normalize_pythonpath_roots,
+    pythonpath_roots,
+    resolve_import_source_path,
+)
 from agents_md_source_types import CommandSource, ModuleInvocation
 from discover_repository import Discovery
 
@@ -15,54 +22,7 @@ PYTHON_FLAGS_WITHOUT_VALUE = frozenset(
     {"-b", "-B", "-d", "-E", "-h", "-i", "-I", "-O", "-OO", "-P", "-q", "-s", "-S", "-u", "-v", "-V", "-x"}
 )
 PYTHON_FLAGS_WITH_VALUE = frozenset({"-W", "-X", "--check-hash-based-pycs"})
-
-
-def pythonpath_roots(
-    tokens: list[str], default: tuple[str, ...], source: CommandSource
-) -> tuple[tuple[str, ...], str | None, tuple[str, ...]]:
-    """Resolve static import roots from command assignments and workflow environment."""
-    assignments = [token.partition("=")[2] for token in tokens if token.startswith("PYTHONPATH=")]
-    value = assignments[-1] if assignments else source.pythonpath
-    roots: list[str] = []
-    if value is None:
-        return default, None, ()
-
-    unresolved_roots: list[str] = []
-
-    for raw_prefix in value.split(":"):
-        prefix = raw_prefix.strip()
-        pythonpath_base = default[-1]
-        unresolved_variable = re.match(r"^\$[A-Za-z_][A-Za-z0-9_]*(?:/|$)", prefix)
-        if re.match(r"^\$PWD(?:/|$)", prefix):
-            prefix = prefix.removeprefix("$PWD").removeprefix("/")
-        elif re.match(r"^\$\{PWD\}(?:/|$)", prefix):
-            prefix = prefix.removeprefix("${PWD}").removeprefix("/")
-        elif re.match(r"^\$GITHUB_WORKSPACE(?:/|$)", prefix):
-            aliases = dict(source.checkout_context.aliases) if source.checkout_context is not None else {}
-            if aliases.get(".") is not None or "." not in aliases:
-                return (), f"PYTHONPATH workspace root is unresolved at {value!r}", ()
-            prefix = prefix.removeprefix("$GITHUB_WORKSPACE").removeprefix("/")
-            pythonpath_base = "."
-        if "$" in prefix or "${{" in prefix:
-            if unresolved_variable is not None:
-                suffix = raw_prefix[unresolved_variable.end() :].lstrip("/")
-                if suffix:
-                    possible_root = posixpath.normpath(posixpath.join(pythonpath_base, suffix))
-                    if possible_root != ".." and not possible_root.startswith("../"):
-                        unresolved_roots.append(possible_root)
-            return (), f"PYTHONPATH is unresolved at {value!r}", tuple(dict.fromkeys(unresolved_roots))
-        if not prefix or prefix == ".":
-            roots.extend(default)
-            continue
-        if posixpath.isabs(prefix):
-            continue
-        normalized = posixpath.normpath(posixpath.join(pythonpath_base, prefix))
-        if normalized == ".." or normalized.startswith("../"):
-            return (), f"PYTHONPATH escapes the repository at {value!r}", ()
-        roots.append(normalized)
-
-    roots.extend(default)
-    return tuple(dict.fromkeys(roots)), None, ()
+KNOWN_INSTALLED_MODULES: Final = frozenset({"pip"})
 
 
 def resolve_module_paths(
@@ -115,6 +75,7 @@ def module_invocation_references(
     dict[str, tuple[ModuleInvocation, ...]],
     tuple[str, ...],
     tuple[str, ...],
+    dict[str, tuple[str, ...]],
 ]:
     """Resolve static module invocations without importing candidate modules."""
     references: dict[str, list[ModuleInvocation]] = {}
@@ -126,10 +87,10 @@ def module_invocation_references(
     except ValueError:
         if "-m" in source.command:
             issues.append(f"unparseable module invocation at {source.origin}")
-        return {}, {}, tuple(issues), ()
+        return {}, {}, tuple(issues), (), {}
     module_index = next((position for position, token in enumerate(tokens) if token == "-m"), None)
     if module_index is None or module_index + 1 >= len(tokens):
-        return {}, {}, (), ()
+        return {}, {}, (), (), {}
     interpreter_index = next(
         (
             position
@@ -140,7 +101,7 @@ def module_invocation_references(
         None,
     )
     if interpreter_index is None:
-        return {}, {}, (), ()
+        return {}, {}, (), (), {}
     options = tokens[interpreter_index + 1 : module_index]
     option_index = 0
     while option_index < len(options):
@@ -148,7 +109,7 @@ def module_invocation_references(
         if token in PYTHON_FLAGS_WITH_VALUE:
             if option_index + 1 >= len(options):
                 issues.append(f"Python option {token!r} has no value before module invocation at {source.origin}")
-                return {}, {}, tuple(issues), ()
+                return {}, {}, tuple(issues), (), {}
             option_index += 2
             continue
         if token in PYTHON_FLAGS_WITHOUT_VALUE or token.startswith(("-X=", "-W=", "--check-hash-based-pycs=")):
@@ -158,16 +119,16 @@ def module_invocation_references(
             option_index += 1
             continue
         if not token.startswith("-"):
-            return {}, {}, (), ()
+            return {}, {}, (), (), {}
         issues.append(
             f"unsupported Python option or wrapper token {token!r} before module invocation at {source.origin}"
         )
-        return {}, {}, tuple(issues), ()
+        return {}, {}, tuple(issues), (), {}
 
     module = tokens[module_index + 1]
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", module):
         issues.append(f"invalid Python module name at {source.origin}")
-        return {}, {}, tuple(issues), ()
+        return {}, {}, tuple(issues), (), {}
     roots, pythonpath_issue, unresolved_roots = pythonpath_roots(
         tokens[:module_index], (source.working_directory,), source
     )
@@ -177,12 +138,26 @@ def module_invocation_references(
             for path, _name in resolve_module_paths(module, unresolved_roots, discovered_files)
             if not path.endswith("/__init__.py")
         )
-        return {}, {}, (f"{pythonpath_issue} at {source.origin}",), possible_paths
+        return {}, {}, (f"{pythonpath_issue} at {source.origin}",), possible_paths, {}
+    roots, root_issues = normalize_pythonpath_roots(roots, Path(discovery.root), source.origin)
+    issues.extend(root_issues)
     relative_module = module.replace(".", "/")
     parts = module.split(".")
-    module_targets = resolve_module_paths(module, roots, discovered_files)
-    module_files = tuple((path, name) for path, name in module_targets if not path.endswith("/__init__.py"))
-    package_initializers_only = tuple((path, name) for path, name in module_targets if path.endswith("/__init__.py"))
+    module_targets: dict[str, str] = {}
+    external_sources: dict[str, set[str]] = {}
+    for import_root in roots:
+        for candidate, resolved_name in resolve_module_paths(module, (import_root,), discovered_files):
+            path, external_path, ownership_issue = resolve_import_source_path(source, import_root, candidate)
+            if ownership_issue is not None:
+                issues.append(ownership_issue)
+            elif external_path is not None:
+                external_sources.setdefault(external_path, set()).add(source.origin)
+            elif path is not None:
+                module_targets[path] = resolved_name
+    module_files = tuple((path, name) for path, name in module_targets.items() if not path.endswith("/__init__.py"))
+    package_initializers_only = tuple(
+        (path, name) for path, name in module_targets.items() if path.endswith("/__init__.py")
+    )
     package_mains: dict[str, str] = {}
     for root in roots:
         package_path = posixpath.normpath(posixpath.join(root, relative_module))
@@ -190,9 +165,25 @@ def module_invocation_references(
             continue
         main_path = f"{package_path}/__main__.py"
         if main_path in discovered_files:
-            package_mains[main_path] = f"{module}.__main__"
+            path, external_path, ownership_issue = resolve_import_source_path(source, root, main_path)
+            if ownership_issue is not None:
+                issues.append(ownership_issue)
+            elif external_path is not None:
+                external_sources.setdefault(external_path, set()).add(source.origin)
+            elif path is not None:
+                package_mains[path] = f"{module}.__main__"
 
-    if package_mains:
+    if external_sources and (package_mains or module_files or package_initializers_only):
+        issues.append(
+            f"ambiguous module ownership for {module!r} at {source.origin}: "
+            + ", ".join((*sorted(module_targets), *sorted(external_sources)))
+        )
+        matches = ()
+        initialized_prefixes = range(0)
+    elif external_sources:
+        matches = ()
+        initialized_prefixes = range(0)
+    elif package_mains:
         if module_files:
             issues.append(
                 f"ambiguous module resolution for {module!r} at {source.origin}: "
@@ -217,8 +208,12 @@ def module_invocation_references(
     else:
         matches = ()
         initialized_prefixes = range(0)
-        if any(root != "." for root in roots) or _has_repository_module_namespace(
-            module, roots, discovered_files, discovery.symlinks
+        local_namespace = _has_repository_module_namespace(module, roots, discovered_files, discovery.symlinks)
+        known_external_module = module.split(".", 1)[0] in sys.stdlib_module_names | KNOWN_INSTALLED_MODULES
+        if (
+            not external_sources
+            and (any(root != "." for root in roots) or local_namespace)
+            and (not known_external_module or local_namespace)
         ):
             issues.append(
                 f"invoked module {module!r} not found under declared repository import roots at {source.origin}"
@@ -232,9 +227,15 @@ def module_invocation_references(
                 continue
             initializer = f"{package_path}/__init__.py"
             if initializer in discovered_files:
-                package_initializers.setdefault(initializer, []).append(
-                    ModuleInvocation(initializer, f"{package_name}.__init__", roots, source.origin)
-                )
+                path, external_path, ownership_issue = resolve_import_source_path(source, root, initializer)
+                if ownership_issue is not None:
+                    issues.append(ownership_issue)
+                elif external_path is not None:
+                    external_sources.setdefault(external_path, set()).add(source.origin)
+                elif path is not None:
+                    package_initializers.setdefault(path, []).append(
+                        ModuleInvocation(path, f"{package_name}.__init__", roots, source.origin)
+                    )
     if len(matches) > 1:
         issues.append(
             f"ambiguous module resolution for {module!r} at {source.origin}: "
@@ -247,33 +248,5 @@ def module_invocation_references(
         {path: tuple(values) for path, values in package_initializers.items()},
         tuple(issues),
         (),
+        {path: tuple(sorted(origins)) for path, origins in external_sources.items()},
     )
-
-
-def module_name_for_path(path: str, root: str) -> str | None:
-    """Derive a Python import name when a source path is under one import root."""
-    try:
-        relative = Path(path).relative_to(Path(root))
-    except ValueError:
-        return None
-    parts = list(relative.parts)
-    if not parts:
-        return None
-    if parts[-1] == "__init__.py":
-        parts.pop()
-    else:
-        parts[-1] = Path(parts[-1]).stem
-    return ".".join(part for part in parts if part)
-
-
-def invocation_roots_for_script(path: str, source: CommandSource) -> tuple[tuple[str, ...], str | None]:
-    """Resolve direct-script import roots and preserve unresolved PYTHONPATH evidence."""
-    try:
-        tokens = shlex.split(source.command, posix=True)
-    except ValueError:
-        tokens = []
-    default = (Path(path).parent.as_posix() or ".", source.working_directory)
-    roots, issue, _unresolved_roots = pythonpath_roots(tokens, default, source)
-    if issue is not None:
-        return roots, f"{issue} at {source.origin}"
-    return roots, None
