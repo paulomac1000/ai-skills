@@ -303,3 +303,36 @@ def test_ordinary_missing_module_is_not_reported_as_symlink(tmp_path: Path) -> N
     inventory = classify_gate_sources(tmp_path, discovery, limit=64)
 
     assert not any("symlink" in issue for issue in inventory.issues)
+
+
+def test_workspace_framed_root_inside_candidate_resolves_candidate_relative_files(tmp_path: Path) -> None:
+    (tmp_path / "entry.py").write_text("import helper\n", encoding="utf-8")
+    helper = tmp_path / "lib" / "helper.py"
+    helper.parent.mkdir()
+    helper.write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          path: candidate\n"
+        "      - name: Invoke workspace candidate root\n"
+        "        working-directory: candidate\n"
+        "        env:\n"
+        "          PYTHONPATH: $GITHUB_WORKSPACE/candidate/lib\n"
+        "        run: python entry.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == "lib/helper.py")
+    assert row.classification == "library"
+    assert row.counted is False
+    assert not any(source.path == "candidate/lib/helper.py" and source.counted for source in inventory.sources)
+    assert not inventory.issues

@@ -9,7 +9,6 @@ from collections import deque
 from pathlib import Path
 
 from agents_md_checkout_sources import resolve_import_source_path
-from agents_md_python_roots import resolve_module_paths
 from agents_md_source_io import read_bounded
 from agents_md_source_types import (
     MAX_IMPORT_CONTEXTS,
@@ -173,9 +172,12 @@ def collect_imported_libraries(
                     "the target is outside the audit read boundary"
                 )
             for import_root in invocation.import_roots:
-                for path, resolved_module in resolve_module_paths(module, (import_root.path,), discovered_files):
+                module_base = posixpath.normpath(posixpath.join(import_root.path, module.replace(".", "/")))
+                for workspace_path in (f"{module_base}.py", f"{module_base}/__init__.py"):
+                    if workspace_path == ".." or workspace_path.startswith("../") or workspace_path.startswith("/"):
+                        continue
                     local_path, external_path, ownership_issue = resolve_import_source_path(
-                        module_source, import_root, path
+                        module_source, import_root, workspace_path
                     )
                     if ownership_issue is not None:
                         issues.append(
@@ -183,8 +185,8 @@ def collect_imported_libraries(
                         )
                     elif external_path is not None:
                         external_origins.setdefault(external_path, set()).add(f"{invocation.path}:{line_number}")
-                    elif local_path is not None:
-                        matches[local_path] = resolved_module
+                    elif local_path is not None and local_path in discovered_files:
+                        matches[local_path] = module
             if len(matches) > 1:
                 issues.append(
                     f"ambiguous repository import {module!r} at {invocation.path}:{line_number}: "
