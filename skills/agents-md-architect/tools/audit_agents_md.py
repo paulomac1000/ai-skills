@@ -53,10 +53,22 @@ def _known_gate_commands_with_inventory(
 ) -> tuple[KnownCommands, GateSourceInventory, list[AuditFinding]]:
     """Collect command evidence while applying the policy budget only to real entrypoints."""
     inventory = classify_gate_sources(root, discovery, limit=MAX_GATE_FILES)
-    gate_sources = tuple(sorted(set((*discovery.ci_files, *discovery.task_runners))))
+    gate_sources = {source.path for source in inventory.sources if source.counted}
+    evidence_sources = gate_sources | set(discovery.ci_files) | set(discovery.task_runners)
     public_sources = _impl._public_source_files(discovery)
-    sources = tuple(sorted(set((*gate_sources, *public_sources))))
+    audited_sources = {source.path for source in inventory.sources if source.classification != "excluded"}
+    sources = tuple(sorted(audited_sources | set(public_sources)))
     findings: list[AuditFinding] = []
+    findings.extend(
+        AuditFinding(
+            root.as_posix(),
+            "error",
+            "evidence.incomplete-gate-source-inventory",
+            1,
+            issue,
+        )
+        for issue in inventory.issues
+    )
     public_commands = set(_impl._entrypoint_invocations(discovery))
     executed_commands: set[CommandEvidence] = set()
 
@@ -102,13 +114,14 @@ def _known_gate_commands_with_inventory(
             if syntax_error is not None:
                 findings.append(AuditFinding(relative, "error", "evidence.invalid-yaml", 1, syntax_error))
                 continue
-        public_commands.update(
-            _impl._parse_many(
-                _impl.public_task_invocations(relative, text),
-                _impl._source_working_directory(relative),
+        if relative in evidence_sources or relative in public_sources:
+            public_commands.update(
+                _impl._parse_many(
+                    _impl.public_task_invocations(relative, text),
+                    _impl._source_working_directory(relative),
+                )
             )
-        )
-        if relative in gate_sources:
+        if relative in evidence_sources:
             executed_commands.update(_impl._executed_source_evidence(relative, text))
     return KnownCommands(frozenset(public_commands), frozenset(executed_commands)), inventory, findings
 

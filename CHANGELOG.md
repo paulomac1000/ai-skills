@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.35.0 - 2026-11-08
+
+### Added
+
+- The AGENTS.md gate-source inventory now resolves directly invoked Python modules, package `__main__.py` targets, declared `PYTHONPATH`, workflow working directories, and bounded wrapper chains independently of source location. Imported repository helpers remain visible as uncounted library evidence with source-qualified origins; incomplete or ambiguous discovery is explicit and blocks a complete audit.
+
+### Changed
+
+- Gate-source receipts expose per-source origins and inventory issues while retaining the 64-entrypoint limit. Moving a genuinely invoked validator cannot make an over-budget consumer pass by path alone.
+- Gate-source policy revision 12 preserves checkout ownership through module invocations, package mains, transitive imports, and script resolution, resolving ownership before discovery membership in each path and recording external ownership for external-only invocations independently of candidate-local file existence; non-GitHub CI surfaces such as Jenkinsfiles and repository YAML pipelines route through the executable-command parsers, and package.json script bodies are scanned as command sources alongside their public invocation names; all of this covers nested local and pinned external checkouts; it keeps parent package initializers and relative imports in the dependency audit, traverses invoked entrypoints under each importer's roots, propagates command-local `PYTHONPATH` into wrapper scans, keeps suffixed `$GITHUB_WORKSPACE` roots in the workspace frame so external vendor modules are never attributed to a candidate-local lookalike, reports imported dependencies and invoked module entrypoints that resolve to repository symlinks as incomplete-inventory findings without following the targets, maps workspace-framed roots into their owning checkout before file matching so candidate-relative dependencies are always found, applies the same checkout-ownership resolution to parent package initializers before discovery membership so initializer-only dependencies inside a local candidate checkout are found, keeps real-path normalized absolute roots in the candidate frame and resolves normalized roots that already carry the owning checkout alias as workspace paths without double re-anchoring, while candidate-relative roots always retain their directory components under the prepended alias, resolves trusted workspace and in-checkout absolute `PYTHONPATH` roots, distinguishes known standard-library/installed tooling from unresolved repository targets, and preserves accurate entrypoint counts when an unresolved root coexists with proven `bin/` or shebang evidence. Missing root ownership, unresolved repository modules, and exhausted bounds remain blocking inventory findings.
+
 ## 3.34.0 - 2026-11-04
 
 ### Added
