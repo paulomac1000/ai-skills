@@ -173,6 +173,8 @@ def module_invocation_references(
             elif path is not None:
                 package_mains[path] = f"{module}.__main__"
 
+    matches: tuple[tuple[str, str], ...]
+    initialized_prefixes: range
     if external_sources and (package_mains or module_files or package_initializers_only):
         issues.append(
             f"ambiguous module ownership for {module!r} at {source.origin}: "
