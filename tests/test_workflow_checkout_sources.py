@@ -669,7 +669,7 @@ def test_compound_keyword_transition_is_honored(tmp_path: Path) -> None:
         "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
         "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
         "      - run: |\n"
-        "          if [ -d tools ]; then cd tools; fi\n"
+        "          { cd tools; }\n"
         "          python check.py\n",
         encoding="utf-8",
     )
@@ -695,3 +695,71 @@ def test_composite_dynamic_working_directory_fails_closed(tmp_path: Path) -> Non
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
     assert any("working-directory" in issue or "unresolved" in issue for issue in inventory.issues)
     assert not any(source.path == "check.py" and source.counted for source in inventory.sources)
+
+
+def test_if_guarded_transition_fails_closed(tmp_path: Path) -> None:
+    """GyVc: if-guarded transitions are conditionally reachable and block attribution."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          if false; then cd tools; fi\n"
+        "          python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("conditional control flow" in issue for issue in inventory.issues)
+    assert not any(source.path == "check.py" and source.counted for source in inventory.sources)
+
+
+def test_nested_subshell_restores_enclosing_directory(tmp_path: Path) -> None:
+    """GyVg: closing a nested subshell restores the enclosing subshell directory."""
+    (tmp_path / "tools").mkdir()
+    nested = tmp_path / "tools" / "nested"
+    nested.mkdir()
+    (nested / "inner.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    check = tmp_path / "tools" / "check.py"
+    check.parent.mkdir(parents=True, exist_ok=True)
+    check.write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          (cd tools; (cd nested; python inner.py); python check.py)\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert {"tools/nested/inner.py", "tools/check.py"} <= counted
+    assert not inventory.issues
+
+
+def test_composite_nested_local_action_reference_fails_closed(tmp_path: Path) -> None:
+    """GyVj: nested uses references inside composite steps are validated."""
+    action = tmp_path / ".github" / "actions" / "validate"
+    action.mkdir(parents=True)
+    (action / "action.yml").write_text(
+        "runs:\n"
+        "  using: composite\n"
+        "  steps:\n"
+        "    - uses: ./missing-action\n",
+        encoding="utf-8",
+    )
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: ./.github/actions/validate\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("composite action" in issue or "unresolved" in issue for issue in inventory.issues)

@@ -86,12 +86,13 @@ def _static_working_directory(value: str | None) -> str | None:
     return posixpath.normpath(candidate)
 
 
-def composite_action_invocations(text: str, relative: str) -> tuple[list[tuple[str, str]], list[str]]:
+def composite_action_invocations(text: str, relative: str) -> tuple[list[tuple[str, str]], list[str], list[str]]:
     scoped: list[tuple[str, str]] = []
     issues: list[str] = []
+    references: list[str] = []
     steps = _mapping_value(_mapping_value(_compose_yaml(text), "runs"), "steps")
     if not isinstance(steps, SequenceNode):
-        return scoped, issues
+        return scoped, issues, references
     for index, step in enumerate(steps.value):
         if not isinstance(step, MappingNode):
             continue
@@ -100,6 +101,9 @@ def composite_action_invocations(text: str, relative: str) -> tuple[list[tuple[s
             for key, value in step.value
             if isinstance(key, ScalarNode) and isinstance(value, ScalarNode)
         }
+        nested_uses = scalars.get("uses")
+        if isinstance(nested_uses, str) and nested_uses.startswith("./"):
+            references.append(nested_uses)
         raw_working_directory = (scalars.get("working-directory") or ".").strip() or "."
         run_value = scalars.get("run")
         working_directory = _static_working_directory(raw_working_directory)
@@ -113,7 +117,7 @@ def composite_action_invocations(text: str, relative: str) -> tuple[list[tuple[s
         )
         scoped.extend(step_scoped)
         issues.extend(step_issues)
-    return scoped, issues
+    return scoped, issues, references
 
 
 def github_workflow_command_scan(

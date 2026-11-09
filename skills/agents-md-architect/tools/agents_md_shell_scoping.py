@@ -116,17 +116,22 @@ def _segment_scope_kind(segment: str) -> tuple[int, int, str]:
 def shell_invocations_with_scope(
     run: str, base_directory: str, scope_label: str
 ) -> tuple[list[tuple[str, str]], list[str]]:
-    """Ordered shell invocations with statically provable directory-scope attribution."""
+    """Ordered invocations with a frame stack: each subshell owns directory + pushd state."""
     scoped: list[tuple[str, str]] = []
     issues: list[str] = []
-    current = base_directory
-    stack: list[str] = []
-    depth = 0
-    sub_current = base_directory
+    if_depth = 0
+    last_was_transition = False
+    scopes: list[str] = [base_directory]
+    pushd_stacks: list[list[str]] = [[]]
     heredoc_end: str | None = None
     defined_functions: set[str] = set()
     function_depth: int | None = None
-    last_was_transition = False
+
+    def pop_frames(count: int) -> None:
+        for _ in range(min(count, len(scopes) - 1)):
+            scopes.pop()
+            pushd_stacks.pop()
+
     for raw_line in _logical_shell_lines(_strip_command_substitutions(run)):
         if function_depth is not None:
             function_depth += raw_line.count("{") - raw_line.count("}")
@@ -148,37 +153,52 @@ def shell_invocations_with_scope(
         line = _strip_shell_comment(line).strip()
         if not line:
             continue
-        heredoc = _HEREDOC.search(line)
-        if heredoc is not None:
-            command = line[: heredoc.start()].rstrip()
-            for operator, segment in _split_ordered(command):
+        if if_depth > 0:
+            if line == "fi" or line.startswith("fi;") or line.startswith("fi "):
+                if_depth -= 1
+                continue
+            if line.startswith("if ") or line == "if":
+                if_depth += 1
+            for operator, segment in _split_ordered(line):
                 del operator
-                normalized = _normalize_invocation(segment)
-                if normalized is not None:
-                    scoped.append((normalized, sub_current if depth else current))
-            heredoc_end = heredoc.group(2)
+                tokens = shlex.split(segment) if segment.strip() else []
+                if tokens and tokens[0] in _TRANSITION_COMMANDS:
+                    issues.append(
+                        f"conditional control flow over a directory transition is unsupported "
+                        f"at {scope_label}: {line!r}"
+                    )
+                    return scoped, issues
+            continue
+        if line.startswith("if ") or line == "if":
+            has_transition = any(
+                token in _TRANSITION_COMMANDS
+                for operator, segment in _split_ordered(line)
+                for token in (shlex.split(segment) if segment.strip() else [])
+            )
+            if has_transition:
+                issues.append(
+                    f"conditional control flow over a directory transition is unsupported at {scope_label}: {line!r}"
+                )
+                return scoped, issues
+            if_depth += 1
             continue
         for operator, segment in _split_ordered(line):
             opens, closes, inner = _segment_scope_kind(segment)
             if opens:
-                depth += opens
-                if depth == opens:
-                    sub_current = current
-            if depth > 0:
-                effective = sub_current
-            else:
-                effective = current
+                for _ in range(opens):
+                    scopes.append(scopes[-1])
+                    pushd_stacks.append(list(pushd_stacks[-1]))
+            effective = scopes[-1]
+            if not inner and closes:
+                pop_frames(min(closes, len(scopes) - 1))
+                continue
             try:
                 tokens = shlex.split(inner)
             except ValueError:
                 issues.append(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
                 return scoped, issues
-            if not inner and closes:
-                depth = max(0, depth - closes)
-                if depth == 0:
-                    sub_current = current
-                continue
             if not tokens:
+                pop_frames(min(closes, len(scopes) - 1))
                 continue
             if operator == "||" and last_was_transition:
                 issues.append(
@@ -189,11 +209,12 @@ def shell_invocations_with_scope(
                 tokens = tokens[1:]
                 inner = " ".join(tokens)
             if not tokens:
+                pop_frames(min(closes, len(scopes) - 1))
                 continue
             if tokens[0] in _TRANSITION_COMMANDS:
                 if tokens[0] == "popd":
-                    if stack and len(tokens) == 1:
-                        target = stack.pop()
+                    if pushd_stacks[-1] and len(tokens) == 1:
+                        target = pushd_stacks[-1].pop()
                     else:
                         target = None
                 else:
@@ -202,19 +223,9 @@ def shell_invocations_with_scope(
                     issues.append(f"workflow directory transition is unsupported at {scope_label}: {segment!r}")
                     return scoped, issues
                 if tokens[0] == "pushd":
-                    stack.append(effective)
-                if depth > 0:
-                    sub_current = target
-                else:
-                    current = target
-                if depth > 0:
-                    sub_current = target
-                else:
-                    current = target
-                if closes:
-                    depth = max(0, depth - closes)
-                    if depth == 0:
-                        sub_current = current
+                    pushd_stacks[-1].append(effective)
+                scopes[-1] = target
+                pop_frames(min(closes, len(scopes) - 1))
                 last_was_transition = True
                 continue
             if tokens[0] in defined_functions:
@@ -227,8 +238,5 @@ def shell_invocations_with_scope(
             if normalized is not None:
                 scoped.append((normalized, effective))
             last_was_transition = False
-            if closes:
-                depth = max(0, depth - closes)
-                if depth == 0:
-                    sub_current = current
+            pop_frames(min(closes, len(scopes) - 1))
     return scoped, issues

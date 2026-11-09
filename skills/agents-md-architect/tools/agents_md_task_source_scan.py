@@ -54,7 +54,12 @@ def _commands_from_surface(
                 scan = WorkflowCommandScan(scan.commands, (*scan.issues, *unresolved), scan.local_action_references)
         return scan
     if Path(relative).name in {"action.yml", "action.yaml"}:
-        scoped, scan_issues = composite_action_invocations(text, relative)
+        scoped, scan_issues, nested_references = composite_action_invocations(text, relative)
+        unresolved = [
+            f"local composite action reference is unresolved at {relative}: {reference}"
+            for reference in nested_references
+            if discovery_files is None or not local_reference_resolves(reference, set(discovery_files))
+        ]
         context = parent.checkout_context if parent is not None else None
         pythonpath = parent.pythonpath if parent is not None else None
         return WorkflowCommandScan(
@@ -62,7 +67,7 @@ def _commands_from_surface(
                 CommandSource(relative, cwd, command, command_origin(relative, text, command), context, pythonpath)
                 for command, cwd in scoped
             ),
-            tuple(sorted(set(scan_issues))),
+            tuple(sorted({*scan_issues, *unresolved})),
         )
     if suffix == ".py":
         commands = _extract_python_invocations(text)
