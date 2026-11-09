@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import posixpath
 import re
 from pathlib import Path
 
@@ -38,7 +39,6 @@ GITHUB_ENV_REFERENCE = re.compile(r"^\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}
 
 
 def _resolve_environment_reference(value: str | None, scopes: tuple[Node | None, ...]) -> str | None:
-    """Resolve one supported GitHub env expression using the nearest scope value."""
     if value is None:
         return None
     match = GITHUB_ENV_REFERENCE.fullmatch(value.strip())
@@ -62,7 +62,6 @@ def _resolve_environment_reference(value: str | None, scopes: tuple[Node | None,
 
 
 def _workflow_environment_value(name: str, scopes: tuple[Node | None, ...]) -> str | None:
-    """Resolve one effective scalar environment value using workflow-to-step precedence."""
     value: str | None = None
     found = False
     for scope in scopes:
@@ -76,6 +75,45 @@ def _workflow_environment_value(name: str, scopes: tuple[Node | None, ...]) -> s
                 found = True
                 break
     return value if found else None
+
+
+def _static_working_directory(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return "."
+    candidate = value.strip()
+    if "${{" in candidate or "$" in candidate or "`" in candidate or candidate.startswith(("~", "/", "..")):
+        return None
+    return posixpath.normpath(candidate)
+
+
+def composite_action_invocations(text: str, relative: str) -> tuple[list[tuple[str, str]], list[str]]:
+    scoped: list[tuple[str, str]] = []
+    issues: list[str] = []
+    steps = _mapping_value(_mapping_value(_compose_yaml(text), "runs"), "steps")
+    if not isinstance(steps, SequenceNode):
+        return scoped, issues
+    for index, step in enumerate(steps.value):
+        if not isinstance(step, MappingNode):
+            continue
+        scalars = {
+            key.value: value.value
+            for key, value in step.value
+            if isinstance(key, ScalarNode) and isinstance(value, ScalarNode)
+        }
+        raw_working_directory = (scalars.get("working-directory") or ".").strip() or "."
+        run_value = scalars.get("run")
+        working_directory = _static_working_directory(raw_working_directory)
+        if working_directory is None:
+            issues.append(f"composite step working-directory is unresolved at {relative} step {index}")
+            continue
+        if not run_value:
+            continue
+        step_scoped, step_issues = shell_invocations_with_scope(
+            run_value, working_directory, f"{relative} composite step {index}"
+        )
+        scoped.extend(step_scoped)
+        issues.extend(step_issues)
+    return scoped, issues
 
 
 def github_workflow_command_scan(

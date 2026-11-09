@@ -7,13 +7,11 @@ import re
 import shlex
 
 from agents_md_shell_evidence_impl import (
-    _compose_yaml,
     _logical_shell_lines,
     _normalize_invocation,
     _strip_command_substitutions,
     _strip_shell_comment,
 )
-from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 _FUNCTION_DEF = re.compile(r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{?")
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
@@ -175,6 +173,11 @@ def shell_invocations_with_scope(
             except ValueError:
                 issues.append(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
                 return scoped, issues
+            if not inner and closes:
+                depth = max(0, depth - closes)
+                if depth == 0:
+                    sub_current = current
+                continue
             if not tokens:
                 continue
             if operator == "||" and last_was_transition:
@@ -182,6 +185,11 @@ def shell_invocations_with_scope(
                     f"conditional reachability after a directory transition is unresolved at {scope_label}: {segment!r}"
                 )
                 return scoped, issues
+            while tokens and tokens[0] in {"then", "else", "do", "{", "!", "fi", "done"}:
+                tokens = tokens[1:]
+                inner = " ".join(tokens)
+            if not tokens:
+                continue
             if tokens[0] in _TRANSITION_COMMANDS:
                 if tokens[0] == "popd":
                     if stack and len(tokens) == 1:
@@ -199,6 +207,14 @@ def shell_invocations_with_scope(
                     sub_current = target
                 else:
                     current = target
+                if depth > 0:
+                    sub_current = target
+                else:
+                    current = target
+                if closes:
+                    depth = max(0, depth - closes)
+                    if depth == 0:
+                        sub_current = current
                 last_was_transition = True
                 continue
             if tokens[0] in defined_functions:
@@ -216,45 +232,3 @@ def shell_invocations_with_scope(
                 if depth == 0:
                     sub_current = current
     return scoped, issues
-
-
-def composite_action_invocations(text: str, relative: str) -> tuple[list[tuple[str, str]], list[str]]:
-    """Ordered composite-action invocations honoring each step's working-directory."""
-    scoped: list[tuple[str, str]] = []
-    issues: list[str] = []
-    root = _compose_yaml(text)
-    if root is None:
-        return scoped, issues
-    runs = _mapping_value(root, "runs")
-    steps = _mapping_value(runs, "steps") if isinstance(runs, MappingNode) else None
-    if not isinstance(steps, SequenceNode):
-        return scoped, issues
-    for index, step in enumerate(steps.value):
-        if not isinstance(step, MappingNode):
-            continue
-        run_value = None
-        working_directory = "."
-        for key_node, value_node in step.value:
-            if not isinstance(key_node, ScalarNode):
-                continue
-            if key_node.value == "run" and isinstance(value_node, ScalarNode):
-                run_value = value_node.value
-            elif key_node.value == "working-directory" and isinstance(value_node, ScalarNode):
-                working_directory = value_node.value.strip() or "."
-        if not run_value:
-            continue
-        step_scoped, step_issues = shell_invocations_with_scope(
-            run_value, working_directory, f"{relative} composite step {index}"
-        )
-        scoped.extend(step_scoped)
-        issues.extend(step_issues)
-    return scoped, issues
-
-
-def _mapping_value(node: Node | None, key: str) -> Node | None:
-    if not isinstance(node, MappingNode):
-        return None
-    for key_node, value_node in node.value:
-        if isinstance(key_node, ScalarNode) and key_node.value == key:
-            return value_node
-    return None

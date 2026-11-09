@@ -18,7 +18,6 @@ from agents_md_python_imports import module_name_for_path
 from agents_md_python_modules import module_invocation_references
 from agents_md_python_roots import invocation_roots_for_script
 from agents_md_shell_evidence import _extract_gate_invocations
-from agents_md_shell_scoping import composite_action_invocations
 from agents_md_source_io import command_origin, local_reference_resolves, public_task_surfaces, read_bounded
 from agents_md_source_types import (
     COMMAND_PATH_REFERENCE,
@@ -31,7 +30,7 @@ from agents_md_source_types import (
     TaskSourceScan,
     WorkflowCommandScan,
 )
-from agents_md_workflow_contexts import github_workflow_command_scan
+from agents_md_workflow_contexts import composite_action_invocations, github_workflow_command_scan
 from discover_repository import Discovery
 
 

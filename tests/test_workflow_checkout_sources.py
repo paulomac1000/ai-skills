@@ -588,3 +588,110 @@ def test_scope_attribution_is_hash_seed_deterministic(tmp_path: Path) -> None:
         )
         outputs.append(result.stdout)
     assert outputs[0] == outputs[1]
+
+
+def test_subshell_transition_closes_scope(tmp_path: Path) -> None:
+    """GVaj/GZVv: a transition segment that closes a subshell restores ambient scope."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          (cd tools)\n"
+        "          python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert "check.py" in counted
+    assert "tools/check.py" not in counted
+    assert not inventory.issues
+
+
+def test_multiline_subshell_close_line_restores_scope(tmp_path: Path) -> None:
+    """GZVv: a standalone ) line closes the subshell even without a transition."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "x.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "root.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          (\n"
+        "            cd tools\n"
+        "            python x.py\n"
+        "          )\n"
+        "          python root.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert {"tools/x.py", "root.py"} <= counted
+    assert not inventory.issues
+
+
+def test_substitution_directory_fails_closed(tmp_path: Path) -> None:
+    """GVap: a substitution-derived cd target blocks complete inventory."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    lookalike = tmp_path / "SUBST$"
+    lookalike.mkdir()
+    (lookalike / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        '          cd "$(printf tools)"\n'
+        "          python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert inventory.issues
+    assert not any(source.path == "tools/check.py" and source.counted for source in inventory.sources)
+    assert not any(source.path.startswith("SUBST$") and source.counted for source in inventory.sources)
+
+
+def test_compound_keyword_transition_is_honored(tmp_path: Path) -> None:
+    """GZV0: transitions behind compound-command keywords still apply."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          if [ -d tools ]; then cd tools; fi\n"
+        "          python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "tools/check.py" in {source.path for source in inventory.sources if source.counted}
+    assert not inventory.issues
+
+
+def test_composite_dynamic_working_directory_fails_closed(tmp_path: Path) -> None:
+    """GZWV: composite working-directory expressions fail closed instead of root attribution."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    _composite(
+        tmp_path,
+        "runs:\n"
+        "  using: composite\n"
+        "  steps:\n"
+        "    - shell: bash\n"
+        "      working-directory: ${{ inputs.working-directory }}\n"
+        "      run: python check.py\n",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("working-directory" in issue or "unresolved" in issue for issue in inventory.issues)
+    assert not any(source.path == "check.py" and source.counted for source in inventory.sources)

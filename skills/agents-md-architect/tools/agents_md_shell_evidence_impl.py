@@ -713,7 +713,7 @@ def _strip_command_substitutions(text: str) -> str:
                 elif text[index] == ")":
                     depth -= 1
                 index += 1
-            result.append("PLACEHOLDER")
+            result.append("SUBST$")
             continue
         if quote is not None:
             if character == quote:
