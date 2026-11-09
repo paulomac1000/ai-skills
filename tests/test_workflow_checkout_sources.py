@@ -763,3 +763,46 @@ def test_composite_nested_local_action_reference_fails_closed(tmp_path: Path) ->
     )
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
     assert any("composite action" in issue or "unresolved" in issue for issue in inventory.issues)
+
+
+def test_conditional_python_retained_when_scope_unchanged(tmp_path: Path) -> None:
+    """O33r: python inside a transition-free conditional block stays in the inventory."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          if true; then\n"
+        "            python check.py\n"
+        "          fi\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "check.py" in {source.path for source in inventory.sources if source.counted}
+    assert not inventory.issues
+
+
+def test_heredoc_body_transitions_are_ignored(tmp_path: Path) -> None:
+    """O33w: heredoc content is data, not shell scope control."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          cat <<'EOF'\n"
+        "          cd tools\n"
+        "          EOF\n"
+        "          python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert "check.py" in counted
+    assert "tools/check.py" not in counted
+    assert not inventory.issues

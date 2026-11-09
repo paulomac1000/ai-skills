@@ -153,21 +153,39 @@ def shell_invocations_with_scope(
         line = _strip_shell_comment(line).strip()
         if not line:
             continue
+        heredoc = _HEREDOC.search(line)
+        if heredoc is not None:
+            command = line[: heredoc.start()].rstrip()
+            if command:
+                for operator, segment in _split_ordered(command):
+                    del operator
+                    normalized = _normalize_invocation(segment)
+                    if normalized is not None:
+                        scoped.append((normalized, scopes[-1]))
+            heredoc_end = heredoc.group(2)
+            continue
         if if_depth > 0:
             if line == "fi" or line.startswith("fi;") or line.startswith("fi "):
                 if_depth -= 1
                 continue
             if line.startswith("if ") or line == "if":
                 if_depth += 1
+                continue
             for operator, segment in _split_ordered(line):
                 del operator
-                tokens = shlex.split(segment) if segment.strip() else []
+                try:
+                    tokens = shlex.split(segment) if segment.strip() else []
+                except ValueError:
+                    tokens = []
                 if tokens and tokens[0] in _TRANSITION_COMMANDS:
                     issues.append(
                         f"conditional control flow over a directory transition is unsupported "
                         f"at {scope_label}: {line!r}"
                     )
                     return scoped, issues
+                normalized = _normalize_invocation(segment)
+                if normalized is not None:
+                    scoped.append((normalized, scopes[-1]))
             continue
         if line.startswith("if ") or line == "if":
             has_transition = any(
