@@ -970,7 +970,7 @@ def test_composite_unsupported_shell_fails_closed(tmp_path: Path) -> None:
 
 
 def test_if_oneliner_with_missing_root_file_reports_issue(tmp_path: Path) -> None:
-    """XnZJ: usunięta tautologia — brakujący root.py musi wygenerować issue."""
+    """XnZJ: the removed tautology - a missing root.py must produce the inventory issue."""
     (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
     workflow = tmp_path / ".github" / "workflows" / "ci.yml"
     workflow.parent.mkdir(parents=True)
