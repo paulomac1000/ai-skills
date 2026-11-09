@@ -575,11 +575,12 @@ def test_scope_attribution_is_hash_seed_deterministic(tmp_path: Path) -> None:
         "print(json.dumps([[s.path, s.classification, s.counted] for s in inv.sources], sort_keys=True))\n"
         "print(json.dumps(sorted(inv.issues)))\n"
     )
-    Path("/tmp/opencode/seed-runner.py").write_text(runner, encoding="utf-8")
+    runner_script = tmp_path / "seed-runner.py"
+    runner_script.write_text(runner, encoding="utf-8")
     outputs = []
     for seed in ("0", "7"):
         result = subprocess.run(
-            [".venv/bin/python", "/tmp/opencode/seed-runner.py", str(tmp_path)],
+            [sys.executable, str(runner_script), str(tmp_path)],
             capture_output=True,
             text=True,
             env={**os.environ, "PYTHONHASHSEED": seed},
