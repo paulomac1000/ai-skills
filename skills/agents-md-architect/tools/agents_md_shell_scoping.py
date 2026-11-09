@@ -29,7 +29,6 @@ def shell_invocations_with_scope(
     scopes: list[str] = [base_directory]
     pushd_stacks: list[list[str]] = [[]]
     heredoc_end: str | None = None
-    heredoc_open = False
     defined_functions: set[str] = set()
     function_depth: int | None = None
     if_depth = 0
@@ -92,8 +91,8 @@ def shell_invocations_with_scope(
                     if normalized is not None:
                         scoped.append((normalized, scopes[-1]))
             continue
-        # 3) conditional-block state
-        line = raw_line.strip()
+        # 3) comment stripping — before conditional/loop/segment parsing.
+        line = _strip_shell_comment(raw_line).strip()
         if if_depth > 0:
             if line == "fi" or line.startswith("fi;") or line.startswith("fi "):
                 if_depth -= 1
@@ -114,23 +113,6 @@ def shell_invocations_with_scope(
             function_depth += raw_line.count("{") - raw_line.count("}")
             if function_depth <= 0:
                 function_depth = None
-            continue
-            for operator, segment in _split_ordered(line):
-                del operator
-                try:
-                    tokens = shlex.split(segment) if segment.strip() else []
-                except ValueError:
-                    issues.append(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
-                    return scoped, issues
-                if tokens and tokens[0] in _TRANSITION_COMMANDS:
-                    issues.append(
-                        f"conditional control flow over a directory transition is unsupported "
-                        f"at {scope_label}: {line!r}"
-                    )
-                    return scoped, issues
-                normalized = _normalize_invocation(segment)
-                if normalized is not None:
-                    scoped.append((normalized, scopes[-1]))
             continue
         # 4) loop headers fail closed
         if line.startswith(("while ", "for ", "until ")) or line in {"while", "for", "until"}:
