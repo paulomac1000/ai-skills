@@ -101,6 +101,7 @@ def github_workflow_command_scan(
 
     commands: list[CommandSource] = []
     issues: list[str] = []
+    local_action_references: list[str] = []
     has_python_launcher = GITHUB_PYTHON_LAUNCHER.search(text) is not None
     for job_index, (job_key, job) in enumerate(jobs.value):
         if not isinstance(job, MappingNode) or _github_condition_is_statically_false(job):
@@ -127,6 +128,8 @@ def github_workflow_command_scan(
                 _mapping_value(step, "env"),
             )
             uses = _scalar_value(_mapping_value(step, "uses"))
+            if isinstance(uses, str) and uses.startswith("./"):
+                local_action_references.append(uses)
             if isinstance(uses, str) and uses.split("@", 1)[0] == "actions/checkout":
                 options = _mapping_value(step, "with")
                 alias, external, issue = classify_checkout(
@@ -221,4 +224,4 @@ def github_workflow_command_scan(
                     CommandSource(relative, command_working_directory, normalized, origin, checkout_context, pythonpath)
                 )
 
-    return WorkflowCommandScan(tuple(commands), tuple(sorted(set(issues))))
+    return WorkflowCommandScan(tuple(commands), tuple(sorted(set(issues))), tuple(local_action_references))

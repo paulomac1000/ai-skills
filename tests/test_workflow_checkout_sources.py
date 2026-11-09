@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -216,7 +218,7 @@ def test_unresolvable_cd_transition_fails_closed(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
-    assert any("unresolved" in issue for issue in inventory.issues)
+    assert any("directory transition" in issue for issue in inventory.issues)
     assert not any(source.path == "x.py" and source.counted for source in inventory.sources)
 
 
@@ -225,12 +227,7 @@ def test_composite_action_steps_are_command_sources(tmp_path: Path) -> None:
     action = tmp_path / ".github" / "actions" / "validate"
     action.mkdir(parents=True)
     (action / "action.yml").write_text(
-        "name: validate\n"
-        "runs:\n"
-        "  using: composite\n"
-        "  steps:\n"
-        "    - shell: bash\n"
-        "      run: python tools/check.py\n",
+        "name: validate\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: python tools/check.py\n",
         encoding="utf-8",
     )
     (tmp_path / "tools").mkdir()
@@ -268,3 +265,325 @@ def test_unresolved_composite_action_reference_fails_closed(tmp_path: Path) -> N
     )
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
     assert any("composite" in issue or "unresolved" in issue for issue in inventory.issues)
+
+
+def _composite(tmp_path: Path, action_body: str, workflow_uses: str = "./.github/actions/validate") -> None:
+    action = tmp_path / ".github" / "actions" / "validate"
+    action.mkdir(parents=True)
+    (action / "action.yml").write_text(action_body, encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        f"      - uses: {workflow_uses}\n",
+        encoding="utf-8",
+    )
+
+
+def test_composite_action_step_working_directory_is_owned(tmp_path: Path) -> None:
+    """R1: composite step working-directory owns command attribution."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    _composite(
+        tmp_path,
+        "runs:\n  using: composite\n  steps:\n    - shell: bash\n      working-directory: tools\n      run: python check.py\n",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert "tools/check.py" in counted
+    assert "check.py" not in counted
+    assert not inventory.issues
+
+
+def test_uncalled_function_body_does_not_mutate_scope(tmp_path: Path) -> None:
+    """R2: an uncalled function definition body must not change ambient scope."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          helper() {\n"
+        "              cd tools\n"
+        "          }\n"
+        "          python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert "check.py" in counted
+    assert "tools/check.py" not in counted
+    assert not inventory.issues
+
+
+def test_semicolon_transition_applies_at_position(tmp_path: Path) -> None:
+    """R3: semicolon-separated transitions apply at their ordered position."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: cd tools; python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "tools/check.py" in {source.path for source in inventory.sources if source.counted}
+    assert not inventory.issues
+
+
+def test_chained_transitions_apply_in_order(tmp_path: Path) -> None:
+    """R3: chained && transitions apply in execution order, not once per block."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "a.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: cd tools && python a.py && cd .. && python b.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert {"tools/a.py", "b.py"} <= counted
+    assert not inventory.issues
+
+
+def test_subshell_transition_is_isolated(tmp_path: Path) -> None:
+    """R3: subshell-local directory transitions do not leak into ambient scope."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "x.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "root.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          (cd tools && python x.py)\n"
+        "          python root.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert {"tools/x.py", "root.py"} <= counted
+    assert not inventory.issues
+
+
+def test_pushd_popd_stack_restores_scope(tmp_path: Path) -> None:
+    """R3: statically provable pushd/popd stack transitions restore scope."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "x.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "root.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          pushd tools\n"
+        "          python x.py\n"
+        "          popd\n"
+        "          python root.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert {"tools/x.py", "root.py"} <= counted
+    assert not inventory.issues
+
+
+def test_popd_without_pushd_fails_closed(tmp_path: Path) -> None:
+    """R3: popd without a provable stack entry blocks attribution."""
+    (tmp_path / "x.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          popd\n"
+        "          python x.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("directory transition" in issue for issue in inventory.issues)
+    assert not any(source.path == "x.py" and source.counted for source in inventory.sources)
+
+
+def test_bare_cd_fails_closed(tmp_path: Path) -> None:
+    """R3: bare cd targets HOME and is not statically resolvable."""
+    (tmp_path / "x.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          cd\n"
+        "          python x.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("directory transition" in issue for issue in inventory.issues)
+    assert not any(source.path == "x.py" and source.counted for source in inventory.sources)
+
+
+def test_cd_option_and_quoted_path_are_supported(tmp_path: Path) -> None:
+    """R3: -P/-L options and quoted multiword targets resolve statically."""
+    target = tmp_path / "my dir"
+    target.mkdir()
+    (target / "x.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        '      - run: cd -P "my dir" && python x.py\n',
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "my dir/x.py" in {source.path for source in inventory.sources if source.counted}
+    assert not inventory.issues
+
+
+def test_alternative_branch_after_transition_fails_closed(tmp_path: Path) -> None:
+    """R3: || reachability after a directory transition is not statically provable."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "a.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "fallback.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: cd tools || python fallback.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("reachability" in issue or "directory transition" in issue for issue in inventory.issues)
+
+
+def test_called_function_with_unresolvable_scope_fails_closed(tmp_path: Path) -> None:
+    """R2: invoking a shell function whose scope effects cannot be proven fails closed."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          helper() {\n"
+        "              cd tools\n"
+        "          }\n"
+        "          helper\n"
+        "          python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("function" in issue for issue in inventory.issues)
+    assert not any(source.path == "check.py" and source.counted for source in inventory.sources)
+
+
+def test_quoted_commented_and_root_local_uses_resolve(tmp_path: Path) -> None:
+    """R4: quoted, commented, and repository-root local action references resolve from YAML."""
+    (tmp_path / "actions" / "build").mkdir(parents=True)
+    (tmp_path / "actions" / "build" / "action.yml").write_text(
+        "runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: python build.py\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "action.yml").write_text(
+        "runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: python root_task.py\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "build.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "root_task.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        '      - uses: "./actions/build"\n'
+        "      - uses: ./actions/build # trailing comment\n"
+        "      - uses: ./\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert {"build.py", "root_task.py"} <= counted
+    assert not inventory.issues
+
+
+def test_run_block_uses_lookalike_is_not_an_action_reference(tmp_path: Path) -> None:
+    """R4: textual uses: lookalikes inside run blocks are not action references."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "x.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          cd tools\n"
+        "          python x.py\n"
+        "          echo 'uses: ./nonexistent'\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert not any("composite action" in issue for issue in inventory.issues)
+    assert "tools/x.py" in {source.path for source in inventory.sources if source.counted}
+
+
+def test_scope_attribution_is_hash_seed_deterministic(tmp_path: Path) -> None:
+    """R5: identical inventory and issues under different PYTHONHASHSEED values."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "a.py").write_text("import b\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "c.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: cd tools && python a.py; cd .. && python b.py; python c.py\n",
+        encoding="utf-8",
+    )
+    runner = (
+        "import json, sys\n"
+        "sys.path.insert(0, 'skills/agents-md-architect/tools')\n"
+        "from agents_md_gate_sources import classify_gate_sources\n"
+        "from discover_repository import discover\n"
+        "from pathlib import Path\n"
+        "root = Path(sys.argv[1])\n"
+        "inv = classify_gate_sources(root, discover(root), limit=64)\n"
+        "print(json.dumps([[s.path, s.classification, s.counted] for s in inv.sources], sort_keys=True))\n"
+        "print(json.dumps(sorted(inv.issues)))\n"
+    )
+    Path("/tmp/opencode/seed-runner.py").write_text(runner, encoding="utf-8")
+    outputs = []
+    for seed in ("0", "7"):
+        result = subprocess.run(
+            [".venv/bin/python", "/tmp/opencode/seed-runner.py", str(tmp_path)],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            check=True,
+        )
+        outputs.append(result.stdout)
+    assert outputs[0] == outputs[1]

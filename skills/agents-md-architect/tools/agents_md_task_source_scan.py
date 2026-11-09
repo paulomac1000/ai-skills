@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shlex
 from collections import deque
 from collections.abc import Collection
@@ -19,7 +18,8 @@ from agents_md_python_imports import module_name_for_path
 from agents_md_python_modules import module_invocation_references
 from agents_md_python_roots import invocation_roots_for_script
 from agents_md_shell_evidence import _extract_gate_invocations
-from agents_md_source_io import command_origin, public_task_surfaces, read_bounded
+from agents_md_shell_scoping import composite_action_invocations
+from agents_md_source_io import command_origin, local_reference_resolves, public_task_surfaces, read_bounded
 from agents_md_source_types import (
     COMMAND_PATH_REFERENCE,
     MAX_RELATED_SOURCE_FILES,
@@ -34,8 +34,6 @@ from agents_md_source_types import (
 from agents_md_workflow_contexts import github_workflow_command_scan
 from discover_repository import Discovery
 
-_LOCAL_ACTION_USES = re.compile(r"^\s*(?:-\s+)?uses:\s*(\./\S+)\s*$", re.MULTILINE)
-
 
 def _commands_from_surface(
     relative: str,
@@ -48,19 +46,25 @@ def _commands_from_surface(
     if relative.startswith(".github/workflows/") and suffix in {".yml", ".yaml"}:
         scan = github_workflow_command_scan(relative, text)
         if discovery_files is not None:
-            for reference in _LOCAL_ACTION_USES.findall(text):
-                target = reference.removeprefix("./").rstrip("/")
-                resolved_workflow = reference.removeprefix("./") in discovery_files
-                resolved_action = any(f"{target}/action.{kind}" in discovery_files for kind in ("yml", "yaml"))
-                if not resolved_workflow and not resolved_action:
-                    scan = WorkflowCommandScan(
-                        scan.commands,
-                        (
-                            *scan.issues,
-                            f"local composite action reference is unresolved at {relative}: {reference}",
-                        ),
-                    )
+            unresolved = [
+                f"local composite action reference is unresolved at {relative}: {reference}"
+                for reference in scan.local_action_references
+                if not local_reference_resolves(reference, set(discovery_files))
+            ]
+            if unresolved:
+                scan = WorkflowCommandScan(scan.commands, (*scan.issues, *unresolved), scan.local_action_references)
         return scan
+    if Path(relative).name in {"action.yml", "action.yaml"}:
+        scoped, scan_issues = composite_action_invocations(text, relative)
+        context = parent.checkout_context if parent is not None else None
+        pythonpath = parent.pythonpath if parent is not None else None
+        return WorkflowCommandScan(
+            tuple(
+                CommandSource(relative, cwd, command, command_origin(relative, text, command), context, pythonpath)
+                for command, cwd in scoped
+            ),
+            tuple(sorted(set(scan_issues))),
+        )
     if suffix == ".py":
         commands = _extract_python_invocations(text)
     elif suffix in {".sh", ".ps1"} or Path(relative).name in WELL_KNOWN_TASK_RUNNERS:
@@ -88,7 +92,6 @@ def _commands_from_surface(
 
 
 def _package_script_commands(text: str) -> set[str]:
-    """Return package.json script bodies as executable command sources."""
     try:
         document = json.loads(text)
     except (json.JSONDecodeError, TypeError):
@@ -100,7 +103,6 @@ def _package_script_commands(text: str) -> set[str]:
 
 
 def _effective_pythonpath(source: CommandSource) -> str | None:
-    """Return the command-local PYTHONPATH assignment when one is present."""
     try:
         tokens = shlex.split(source.command, posix=True)
     except ValueError:

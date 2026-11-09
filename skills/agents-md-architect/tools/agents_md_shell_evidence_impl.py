@@ -679,3 +679,53 @@ def _command_path_tokens(command: str) -> tuple[str, ...]:
             continue
         paths.append(candidate.as_posix())
     return tuple(paths)
+
+def _strip_command_substitutions(text: str) -> str:
+    """Replace $(...) spans with an opaque placeholder before shell parsing.
+
+    Substituted output is outside the bounded static grammar: quotes inside a
+    substitution never toggle the outer shell quote state, and substitutions
+    nested inside double quotes are opaque to the outer quote state too.
+    """
+    result: list[str] = []
+    index = 0
+    quote: str | None = None
+    escaped = False
+    while index < len(text):
+        character = text[index]
+        if escaped:
+            result.append(character)
+            escaped = False
+            index += 1
+            continue
+        if character == "\\" and quote != "'":
+            result.append(character)
+            escaped = True
+            index += 1
+            continue
+        in_double_quote = quote == '"'
+        if character == "$" and text.startswith("$(", index) and quote != "'":
+            depth = 1
+            index += 2
+            while index < len(text) and depth:
+                if text[index] == "(":
+                    depth += 1
+                elif text[index] == ")":
+                    depth -= 1
+                index += 1
+            result.append("PLACEHOLDER")
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            result.append(character)
+            index += 1
+            continue
+        if character in "'\"":
+            quote = character
+            result.append(character)
+            index += 1
+            continue
+        result.append(character)
+        index += 1
+    return "".join(result)

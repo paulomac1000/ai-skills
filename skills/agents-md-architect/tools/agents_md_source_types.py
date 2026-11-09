@@ -109,6 +109,7 @@ class CommandSource:
 class WorkflowCommandScan:
     commands: tuple[CommandSource, ...]
     issues: tuple[str, ...]
+    local_action_references: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
