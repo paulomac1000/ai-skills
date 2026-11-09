@@ -1161,3 +1161,167 @@ def test_composite_pwsh_here_string_uses_powershell_path(tmp_path: Path) -> None
     )
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
     assert "check.py" in {source.path for source in inventory.sources if source.counted}
+
+
+def test_heredoc_opener_prefix_command_retained(tmp_path: Path) -> None:
+    """ZDcJ/ZK7Q: command before a heredoc opener stays in the inventory."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          python check.py <<'EOF'\n"
+        "          data\n"
+        "          EOF\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "check.py" in {source.path for source in inventory.sources if source.counted}
+    assert not any("heredoc" in issue and "unresolved" in issue for issue in inventory.issues)
+
+
+def test_fi_semicolon_suffix_command_runs(tmp_path: Path) -> None:
+    """ZDcM: a command after `fi;` runs under the ambient scope."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          if true; then\n"
+        "            echo yes\n"
+        "          fi; python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "check.py" in {source.path for source in inventory.sources if source.counted}
+    assert not inventory.issues
+
+
+def test_function_close_suffix_command_runs(tmp_path: Path) -> None:
+    """ZDcO: a command after a one-line function definition stays in the inventory."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: helper() { echo yes; }; python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "check.py" in {source.path for source in inventory.sources if source.counted}
+    assert not inventory.issues
+
+
+def test_stale_inner_keyword_free_segments(tmp_path: Path) -> None:
+    """ZK8B: keyword-free segments after a shifted segment use their own tokens."""
+    (tmp_path / "a.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: if true; then python a.py; python b.py; fi\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = [source.path for source in inventory.sources if source.counted and source.classification == "task_entrypoint"]
+    assert "a.py" in counted
+    assert "b.py" in counted
+    assert not inventory.issues
+
+
+def test_multiline_conditional_python_retained(tmp_path: Path) -> None:
+    """ZK8B multiline variant: each conditional line keeps its own invocation."""
+    (tmp_path / "a.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          if true; then\n"
+        "            python a.py\n"
+        "            python b.py\n"
+        "          fi\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert {"a.py", "b.py"} <= counted
+    assert not inventory.issues
+
+
+def test_unclosed_heredoc_fails_closed(tmp_path: Path) -> None:
+    """Unbalanced constructs: an unclosed heredoc must produce an explicit issue."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          python check.py <<'EOF'\n"
+        "          data never terminated\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("heredoc" in issue for issue in inventory.issues)
+
+
+def test_unbalanced_if_fails_closed(tmp_path: Path) -> None:
+    """Unbalanced constructs: an unterminated if block produces an explicit issue."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          if true; then\n"
+        "            python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("unterminated" in issue or "unbalanced" in issue or "conditional" in issue for issue in inventory.issues)
+
+
+def test_malformed_composite_yaml_fails_closed(tmp_path: Path) -> None:
+    """ZK6_: malformed composite YAML produces a typed issue, not silence."""
+    action = tmp_path / ".github" / "actions" / "broken"
+    action.mkdir(parents=True)
+    (action / "action.yml").write_text("runs: [this is : not : valid yaml\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: ./.github/actions/broken\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("composite action" in issue or "YAML" in issue for issue in inventory.issues)
+
+
+def test_here_string_single_run_block(tmp_path: Path) -> None:
+    """ZK7b: here-string and python in ONE multi-line run block."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          cat <<< hello\n"
+        "          python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "check.py" in {source.path for source in inventory.sources if source.counted}
+    assert not any("heredoc" in issue for issue in inventory.issues)

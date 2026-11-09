@@ -31,8 +31,19 @@ def composite_action_invocations(text: str, relative: str) -> tuple[list[tuple[s
     scoped: list[tuple[str, str]] = []
     issues: list[str] = []
     references: list[str] = []
-    steps = _mapping_value(_mapping_value(_compose_yaml(text), "runs"), "steps")
-    if not isinstance(steps, SequenceNode):
+    root = _compose_yaml(text)
+    if root is None:
+        issues.append(f"composite action YAML is malformed at {relative}")
+        return scoped, issues, references
+    runs = _mapping_value(root, "runs")
+    if runs is not None and not isinstance(runs, MappingNode):
+        issues.append(f"composite action runs is malformed at {relative}")
+        return scoped, issues, references
+    steps = _mapping_value(runs, "steps") if runs is not None else None
+    if steps is not None and not isinstance(steps, SequenceNode):
+        issues.append(f"composite action steps is malformed at {relative}")
+        return scoped, issues, references
+    if steps is None:
         return scoped, issues, references
     for index, step in enumerate(steps.value):
         if not isinstance(step, MappingNode):
