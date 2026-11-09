@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import posixpath
 import re
 import shlex
 
@@ -12,105 +11,12 @@ from agents_md_shell_evidence_impl import (
     _strip_command_substitutions,
     _strip_shell_comment,
 )
+from agents_md_shell_grammar import _segment_scope_kind, _split_ordered, _static_cd_target
 
 _FUNCTION_DEF = re.compile(r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{?")
-_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+_HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 _SUPPORTED_CD_FLAGS = {"-P", "-L"}
 _TRANSITION_COMMANDS = {"cd", "pushd", "popd"}
-
-
-def _split_ordered(command: str) -> list[tuple[str | None, str]]:
-    """Split at unquoted ``;``/``&&``/``||`` preserving order and the preceding operator."""
-    ordered: list[tuple[str | None, str]] = []
-    operator: str | None = None
-    current: list[str] = []
-    quote: str | None = None
-    escaped = False
-    index = 0
-    while index < len(command):
-        character = command[index]
-        if escaped:
-            current.append(character)
-            escaped = False
-            index += 1
-            continue
-        if character == "\\" and quote != "'":
-            current.append(character)
-            escaped = True
-            index += 1
-            continue
-        if quote is not None:
-            current.append(character)
-            if character == quote:
-                quote = None
-            index += 1
-            continue
-        if character in "'\"":
-            quote = character
-            current.append(character)
-            index += 1
-            continue
-        separator = ""
-        if character == ";":
-            separator = ";"
-        elif command.startswith("&&", index):
-            separator = "&&"
-        elif command.startswith("||", index):
-            separator = "||"
-        if separator:
-            segment = "".join(current).strip()
-            if segment:
-                ordered.append((operator, segment))
-            operator = separator
-            current = []
-            index += len(separator)
-            continue
-        current.append(character)
-        index += 1
-    segment = "".join(current).strip()
-    if segment:
-        ordered.append((operator, segment))
-    return ordered
-
-
-def _static_cd_target(tokens: list[str], current: str) -> str | None:
-    """Resolve cd/pushd arguments to a static in-repository directory, else None."""
-    flags = [token for token in tokens if token.startswith("-")]
-    if any(flag not in _SUPPORTED_CD_FLAGS for flag in flags):
-        return None
-    operands = [token for token in tokens if not token.startswith("-")]
-    if len(operands) != 1:
-        return None
-    cleaned = operands[0]
-    if (
-        "$" in cleaned
-        or "`" in cleaned
-        or "*" in cleaned
-        or "?" in cleaned
-        or cleaned in {"-", ""}
-        or cleaned.startswith("~")
-        or cleaned.startswith("/")
-    ):
-        return None
-    joined = posixpath.normpath(posixpath.join(current, cleaned))
-    if joined == ".." or joined.startswith("../"):
-        return None
-    return joined
-
-
-def _segment_scope_kind(segment: str) -> tuple[int, int, str]:
-    """Return (leading subshell opens, trailing closes, inner text) for a segment."""
-    leading = 0
-    index = 0
-    while index < len(segment) and segment[index] == "(":
-        leading += 1
-        index += 1
-    trailing = 0
-    end = len(segment)
-    while end > index and segment[end - 1] == ")":
-        trailing += 1
-        end -= 1
-    return leading, trailing, segment[index:end]
 
 
 def shell_invocations_with_scope(
@@ -133,6 +39,10 @@ def shell_invocations_with_scope(
             pushd_stacks.pop()
 
     for raw_line in _logical_shell_lines(_strip_command_substitutions(run)):
+        if heredoc_end is not None:
+            if raw_line.strip() == heredoc_end:
+                heredoc_end = None
+            continue
         if function_depth is not None:
             function_depth += raw_line.count("{") - raw_line.count("}")
             if function_depth <= 0:
@@ -146,24 +56,12 @@ def shell_invocations_with_scope(
                 function_depth = None
             continue
         line = raw_line.strip()
-        if heredoc_end is not None:
-            if line == heredoc_end:
-                heredoc_end = None
-            continue
         line = _strip_shell_comment(line).strip()
         if not line:
             continue
-        heredoc = _HEREDOC.search(line)
-        if heredoc is not None:
-            command = line[: heredoc.start()].rstrip()
-            if command:
-                for operator, segment in _split_ordered(command):
-                    del operator
-                    normalized = _normalize_invocation(segment)
-                    if normalized is not None:
-                        scoped.append((normalized, scopes[-1]))
-            heredoc_end = heredoc.group(2)
-            continue
+        if line.startswith(("while ", "for ", "until ")) or line in {"while", "for", "until"}:
+            issues.append(f"unsupported loop control flow is not statically attributable at {scope_label}: {line!r}")
+            return scoped, issues
         if if_depth > 0:
             if line == "fi" or line.startswith("fi;") or line.startswith("fi "):
                 if_depth -= 1
@@ -173,11 +71,16 @@ def shell_invocations_with_scope(
                 continue
             for operator, segment in _split_ordered(line):
                 del operator
+                heredoc_in_segment = _HEREDOC.search(segment)
+                if heredoc_in_segment is not None:
+                    heredoc_end = heredoc_in_segment.group(2)
+                    break
                 try:
                     tokens = shlex.split(segment) if segment.strip() else []
                 except ValueError:
                     issues.append(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
                     return scoped, issues
+                inner = segment
                 while tokens and tokens[0] in {"then", "else", "elif", "fi", "done", "{", "!"}:
                     tokens = tokens[1:]
                     inner = " ".join(tokens)
@@ -222,6 +125,10 @@ def shell_invocations_with_scope(
             if_depth += 1
             continue
         for operator, segment in _split_ordered(line):
+            heredoc_match = _HEREDOC.search(segment)
+            if heredoc_match is not None:
+                heredoc_end = heredoc_match.group(2)
+                break
             opens, closes, inner = _segment_scope_kind(segment)
             if opens:
                 for _ in range(opens):
@@ -273,6 +180,10 @@ def shell_invocations_with_scope(
                     f"are not statically resolvable at {scope_label}"
                 )
                 return scoped, issues
+            if operator == "||" and last_was_transition:
+                issues.append(
+                    f"conditional reachability after a directory transition is unresolved at {scope_label}: {segment!r}"
+                )
             normalized = _normalize_invocation(inner)
             if normalized is not None:
                 scoped.append((normalized, effective))

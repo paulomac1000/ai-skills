@@ -344,8 +344,8 @@ def test_semicolon_transition_applies_at_position(tmp_path: Path) -> None:
     assert not inventory.issues
 
 
-def test_chained_transitions_apply_in_order(tmp_path: Path) -> None:
-    """R3: chained && transitions apply in execution order, not once per block."""
+def test_chained_and_transitions_fail_closed(tmp_path: Path) -> None:
+    """PE9r/R2: &&-chained directory transitions are not provably unconditional."""
     (tmp_path / "tools").mkdir()
     (tmp_path / "tools" / "a.py").write_text("VALUE = 1\n", encoding="utf-8")
     (tmp_path / "b.py").write_text("VALUE = 2\n", encoding="utf-8")
@@ -358,9 +358,7 @@ def test_chained_transitions_apply_in_order(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
-    counted = {source.path for source in inventory.sources if source.counted}
-    assert {"tools/a.py", "b.py"} <= counted
-    assert not inventory.issues
+    assert any("directory transition" in issue for issue in inventory.issues)
 
 
 def test_subshell_transition_is_isolated(tmp_path: Path) -> None:
@@ -808,6 +806,7 @@ def test_heredoc_body_transitions_are_ignored(tmp_path: Path) -> None:
 def test_if_oneliner_preserves_commands_and_depth(tmp_path: Path) -> None:
     """O-PY: same-line if/fi must not swallow commands nor leave if_depth stuck."""
     (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "root.py").write_text("VALUE = 2\n", encoding="utf-8")
     workflow = tmp_path / ".github" / "workflows" / "ci.yml"
     workflow.parent.mkdir(parents=True)
     workflow.write_text(
@@ -968,3 +967,197 @@ def test_composite_unsupported_shell_fails_closed(tmp_path: Path) -> None:
     )
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
     assert any("shell" in issue for issue in inventory.issues)
+
+
+def test_if_oneliner_with_missing_root_file_reports_issue(tmp_path: Path) -> None:
+    """XnZJ: usunięta tautologia — brakujący root.py musi wygenerować issue."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          if true; then python check.py; fi\n"
+        "          python missing_root.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "check.py" in {source.path for source in inventory.sources if source.counted}
+    assert any("missing_root.py" in issue for issue in inventory.issues)
+
+
+def test_function_definition_inside_heredoc_is_data(tmp_path: Path) -> None:
+    """XhNQ: heredoc body lines never start shell function scopes."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          cat <<'EOF'\n"
+        "          f() {\n"
+        "            cd tools\n"
+        "          }\n"
+        "          EOF\n"
+        "          python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert "check.py" in counted
+    assert "tools/check.py" not in counted
+    assert not inventory.issues
+
+
+def test_here_string_is_not_a_heredoc(tmp_path: Path) -> None:
+    """XnYy: <<< is a here-string, not a heredoc delimiter."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: cat <<< hello\n      - run: python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "check.py" in {source.path for source in inventory.sources if source.counted}
+
+
+def test_transition_before_heredoc_applies(tmp_path: Path) -> None:
+    """XhNY: cd before a heredoc goes through the ordered scope engine."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          cd tools; cat <<'EOF'\n"
+        "          data\n"
+        "          EOF\n"
+        "          python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert "tools/check.py" in counted
+    assert "check.py" not in counted
+
+
+def test_while_loop_fails_closed(tmp_path: Path) -> None:
+    """XhNJ: loop bodies with transitions fail closed."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          while false; do\n"
+        "            cd tools\n"
+        "          done\n"
+        "          python check.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("loop" in issue for issue in inventory.issues)
+
+
+def test_do_prefixed_transition_inside_if_fails_closed(tmp_path: Path) -> None:
+    """XnY7: a do-prefixed transition inside an if block fails closed."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          for d in a; do\n"
+        "            cd tools\n"
+        "          done\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("loop" in issue or "directory transition" in issue for issue in inventory.issues)
+
+
+def test_variable_inner_not_reused_across_segments(tmp_path: Path) -> None:
+    """XnZC: each segment's inner text is derived from its own tokens."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: if true; then python check.py; fi\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "check.py" in {source.path for source in inventory.sources if source.counted}
+    assert not inventory.issues
+
+
+def test_composite_non_scalar_working_directory_fails_closed(tmp_path: Path) -> None:
+    """O-Pk: a non-scalar working-directory node fails closed."""
+    action = tmp_path / ".github" / "actions" / "validate"
+    action.mkdir(parents=True)
+    (action / "action.yml").write_text(
+        "runs:\n"
+        "  using: composite\n"
+        "  steps:\n"
+        "    - shell: bash\n"
+        "      working-directory:\n"
+        "        nested: value\n"
+        "      run: python check.py\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: ./.github/actions/validate\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("working-directory" in issue for issue in inventory.issues)
+
+
+def test_composite_pwsh_here_string_uses_powershell_path(tmp_path: Path) -> None:
+    """PE9x: pwsh here-strings go through PowerShell extraction, not the POSIX parser."""
+    action = tmp_path / ".github" / "actions" / "validate"
+    action.mkdir(parents=True)
+    (action / "action.yml").write_text(
+        "runs:\n"
+        "  using: composite\n"
+        "  steps:\n"
+        "    - shell: pwsh\n"
+        "      run: |\n"
+        "        @'\n"
+        "        data\n"
+        "        '@\n"
+        "        python check.py\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: ./.github/actions/validate\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "check.py" in {source.path for source in inventory.sources if source.counted}
