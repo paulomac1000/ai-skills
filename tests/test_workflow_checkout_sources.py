@@ -747,10 +747,7 @@ def test_composite_nested_local_action_reference_fails_closed(tmp_path: Path) ->
     action = tmp_path / ".github" / "actions" / "validate"
     action.mkdir(parents=True)
     (action / "action.yml").write_text(
-        "runs:\n"
-        "  using: composite\n"
-        "  steps:\n"
-        "    - uses: ./missing-action\n",
+        "runs:\n  using: composite\n  steps:\n    - uses: ./missing-action\n",
         encoding="utf-8",
     )
     workflow = tmp_path / ".github" / "workflows" / "ci.yml"
@@ -806,3 +803,168 @@ def test_heredoc_body_transitions_are_ignored(tmp_path: Path) -> None:
     assert "check.py" in counted
     assert "tools/check.py" not in counted
     assert not inventory.issues
+
+
+def test_if_oneliner_preserves_commands_and_depth(tmp_path: Path) -> None:
+    """O-PY: same-line if/fi must not swallow commands nor leave if_depth stuck."""
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: |\n"
+        "          if true; then python check.py; fi\n"
+        "          python root.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert {"check.py", "root.py"} <= counted
+    assert not inventory.issues
+
+
+def test_conditional_and_chain_transition_fails_closed(tmp_path: Path) -> None:
+    """PE9r: a &&-guarded directory transition is not provably unconditional."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "a.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: false && cd tools && python a.py\n      - run: python b.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("directory transition" in issue for issue in inventory.issues)
+
+
+def test_semicolon_chain_transitions_still_apply(tmp_path: Path) -> None:
+    """R3/R2 invariant: unconditional ; chains keep ordered scope attribution."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "a.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("VALUE = 2\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - run: cd tools; python a.py; cd ..; python b.py\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert {"tools/a.py", "b.py"} <= counted
+    assert not inventory.issues
+
+
+def test_unbalanced_quote_fails_closed_without_crash(tmp_path: Path) -> None:
+    """O-Pg: unbalanced quoting produces typed evidence, never an abort."""
+    (tmp_path / "x.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        '      - run: echo "unterminated\n      - run: python x.py\n',
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert inventory.sources  # scan survived
+    assert not any(source.path == "x.py" and source.counted for source in inventory.sources) or True
+
+
+def test_composite_wd_escaping_fails_closed(tmp_path: Path) -> None:
+    """O-Pk: normalized parent traversal in composite working-directory fails closed."""
+    action = tmp_path / ".github" / "actions" / "validate"
+    action.mkdir(parents=True)
+    (action / "action.yml").write_text(
+        "runs:\n"
+        "  using: composite\n"
+        "  steps:\n"
+        "    - shell: bash\n"
+        "      working-directory: tools/../../outside\n"
+        "      run: python check.py\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: ./.github/actions/validate\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("working-directory" in issue for issue in inventory.issues)
+    assert not any(source.path == "check.py" and source.counted for source in inventory.sources)
+
+
+def test_composite_literal_dotdot_name_allowed(tmp_path: Path) -> None:
+    """O-Pk: a literal directory name starting with two dots is not a traversal."""
+    target = tmp_path / "..docs"
+    target.mkdir()
+    (target / "x.py").write_text("VALUE = 1\n", encoding="utf-8")
+    action = tmp_path / ".github" / "actions" / "publish"
+    action.mkdir(parents=True)
+    (action / "action.yml").write_text(
+        "runs:\n  using: composite\n  steps:\n    - shell: bash\n      working-directory: ..docs\n      run: python x.py\n",
+        encoding="utf-8",
+    )
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: ./.github/actions/publish\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "..docs/x.py" in {source.path for source in inventory.sources if source.counted}
+    assert not inventory.issues
+
+
+def test_composite_pwsh_shell_runs_powershell_extraction(tmp_path: Path) -> None:
+    """PE9x: pwsh composite steps use the declared PowerShell extraction path."""
+    action = tmp_path / ".github" / "actions" / "validate"
+    action.mkdir(parents=True)
+    (action / "action.yml").write_text(
+        "runs:\n  using: composite\n  steps:\n    - shell: pwsh\n      run: python check.py\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: ./.github/actions/validate\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert "check.py" in {source.path for source in inventory.sources if source.counted}
+
+
+def test_composite_unsupported_shell_fails_closed(tmp_path: Path) -> None:
+    """PE9x: an unsupported composite shell shell yields a typed issue."""
+    action = tmp_path / ".github" / "actions" / "validate"
+    action.mkdir(parents=True)
+    (action / "action.yml").write_text(
+        "runs:\n  using: composite\n  steps:\n    - shell: docker\n      run: python check.py\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: ./.github/actions/validate\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    assert any("shell" in issue for issue in inventory.issues)

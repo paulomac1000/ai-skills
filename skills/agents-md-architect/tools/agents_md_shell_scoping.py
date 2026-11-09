@@ -176,28 +176,49 @@ def shell_invocations_with_scope(
                 try:
                     tokens = shlex.split(segment) if segment.strip() else []
                 except ValueError:
-                    tokens = []
-                if tokens and tokens[0] in _TRANSITION_COMMANDS:
+                    issues.append(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
+                    return scoped, issues
+                while tokens and tokens[0] in {"then", "else", "elif", "fi", "done", "{", "!"}:
+                    tokens = tokens[1:]
+                    inner = " ".join(tokens)
+                if not tokens:
+                    continue
+                if tokens[0] in _TRANSITION_COMMANDS:
                     issues.append(
                         f"conditional control flow over a directory transition is unsupported "
                         f"at {scope_label}: {line!r}"
                     )
                     return scoped, issues
-                normalized = _normalize_invocation(segment)
+                normalized = _normalize_invocation(inner)
                 if normalized is not None:
                     scoped.append((normalized, scopes[-1]))
             continue
         if line.startswith("if ") or line == "if":
-            has_transition = any(
-                token in _TRANSITION_COMMANDS
-                for operator, segment in _split_ordered(line)
-                for token in (shlex.split(segment) if segment.strip() else [])
-            )
-            if has_transition:
-                issues.append(
-                    f"conditional control flow over a directory transition is unsupported at {scope_label}: {line!r}"
-                )
-                return scoped, issues
+            segments = _split_ordered(line)
+            last_segment = segments[-1][1] if segments else ""
+            one_line_fi = last_segment == "fi" or last_segment.startswith("fi;") or last_segment.startswith("fi ")
+            for operator, segment in segments:
+                del operator
+                try:
+                    tokens = shlex.split(segment) if segment.strip() else []
+                except ValueError:
+                    issues.append(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
+                    return scoped, issues
+                while tokens and tokens[0] in {"then", "else", "elif", "fi", "done", "{", "!", "if"}:
+                    tokens = tokens[1:]
+                    inner = " ".join(tokens)
+                if not tokens:
+                    continue
+                if tokens[0] in _TRANSITION_COMMANDS:
+                    issues.append(
+                        f"conditional control flow over a directory transition is unsupported at {scope_label}: {segment!r}"
+                    )
+                    return scoped, issues
+                normalized = _normalize_invocation(inner)
+                if normalized is not None:
+                    scoped.append((normalized, scopes[-1]))
+            if one_line_fi:
+                continue
             if_depth += 1
             continue
         for operator, segment in _split_ordered(line):
@@ -218,9 +239,9 @@ def shell_invocations_with_scope(
             if not tokens:
                 pop_frames(min(closes, len(scopes) - 1))
                 continue
-            if operator == "||" and last_was_transition:
+            if tokens[0] in _TRANSITION_COMMANDS and operator not in (None, ";"):
                 issues.append(
-                    f"conditional reachability after a directory transition is unresolved at {scope_label}: {segment!r}"
+                    f"conditional control flow over a directory transition is unsupported at {scope_label}: {segment!r}"
                 )
                 return scoped, issues
             while tokens and tokens[0] in {"then", "else", "do", "{", "!", "fi", "done"}:
