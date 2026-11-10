@@ -369,6 +369,38 @@ def test_function_invocation_still_fails_closed() -> None:
     assert issues and "helper" in issues[0]
 
 
+# ---------- qpx3 / qpx- (review 5841921630) ----------
+
+
+def test_uncalled_function_heredoc_opener_is_never_attributed() -> None:
+    run = "helper() {\n    cd tools\n    python ghost.py <<'GHOST'\ndata line\nGHOST\n}\npython check.py\n"
+    scoped, issues = _scoped_issues(run)
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+    assert not any("ghost.py" in command for command, _scope in scoped)
+    assert not any(scope == "tools" for _command, scope in scoped)
+
+
+def test_nested_fi_suffix_is_processed_with_inherited_context() -> None:
+    scoped, issues = _scoped_issues("if false; then\n    if true; then\n        :\n    fi; python check.py\nfi\n")
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+
+
+def test_nested_fi_suffix_transition_fails_closed() -> None:
+    scoped, issues = _scoped_issues(
+        "if false; then\n    if true; then\n        :\n    fi; cd tools\nfi\npython check.py\n"
+    )
+    assert not any(scope == "tools" for _command, scope in scoped)
+    assert issues and "directory transition" in issues[-1]
+
+
+def test_top_level_fi_suffix_transition_still_applies() -> None:
+    scoped, issues = _scoped_issues("if true; then :; fi; cd tools\npython check.py\n")
+    assert issues == []
+    assert ("python check.py", "tools") in scoped
+
+
 # ---------- 5840414479: F1/F2/F3 ----------
 
 

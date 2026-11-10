@@ -205,11 +205,8 @@ def shell_invocations_with_scope(
             return scoped, issues
         if function_depth is not None:  # inside a definition body
             opener = _HEREDOC.search(line)
-            if opener is not None:  # a body heredoc is data, never depth-relevant tokens
-                heredoc_end = opener.group(2)
-                prefix = _HEREDOC.sub("", line, count=1).strip()
-                if prefix and not run_line(prefix, substitutions):
-                    return scoped, issues
+            if opener is not None:  # a body heredoc is data: consume delimiter + body; the uncalled
+                heredoc_end = opener.group(2)  # definition's opener command is never attributed (qpx3)
                 continue
             function_depth += _structural_brace_delta(line)  # quoted braces are data (5839793113)
             if function_depth <= 0:
@@ -244,7 +241,10 @@ def shell_invocations_with_scope(
                 suffix = line[2:].strip()
                 if suffix.startswith(";"):
                     suffix = suffix[1:].strip()
-                if suffix and if_depth == 0 and not run_line(suffix, substitutions):
+                # qpx-: an inner fi's suffix runs with the INHERITED frame context — never
+                # silently dropped while an outer conditional is still open, and never made
+                # unconditional by the inner close.
+                if suffix and not run_line(suffix, substitutions):
                     return scoped, issues
                 continue
             opener = _HEREDOC.search(line)
