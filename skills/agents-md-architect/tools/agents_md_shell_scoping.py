@@ -15,7 +15,7 @@ from agents_md_shell_grammar import _segment_scope_kind, _split_ordered, _static
 
 _FUNCTION_DEF = re.compile(r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{?")
 _HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
-_SUPPORTED_CD_FLAGS = {"-P", "-L"}
+_KEYWORDS = {"then", "else", "elif", "fi", "done", "do", "{", "!", "if"}
 _TRANSITION_COMMANDS = {"cd", "pushd", "popd"}
 
 
@@ -25,9 +25,9 @@ def shell_invocations_with_scope(
     """Ordered invocations with explicit frames, block tracking and fail-closed EOF."""
     scoped: list[tuple[str, str]] = []
     issues: list[str] = []
-    last_was_transition = False
     scopes: list[str] = [base_directory]
     pushd_stacks: list[list[str]] = [[]]
+    last_was_transition = False
     heredoc_end: str | None = None
     defined_functions: set[str] = set()
     function_depth: int | None = None
@@ -38,199 +38,59 @@ def shell_invocations_with_scope(
             scopes.pop()
             pushd_stacks.pop()
 
-    def emit_segment(segment: str) -> bool:
-        """Return False when the segment is an unsupported conditional transition."""
-        tokens = shlex.split(segment) if segment.strip() else []
-        while tokens and tokens[0] in {"then", "else", "elif", "fi", "done", "do", "{", "!", "if"}:
-            tokens = tokens[1:]
-            segment = " ".join(tokens)
-        if tokens and tokens[0] in _TRANSITION_COMMANDS:
-            if last_was_transition:
-                issues.append(
-                    f"conditional control flow over a directory transition is unsupported at {scope_label}: {segment!r}"
-                )
-                return False
-            target = _static_cd_target(tokens[1:], scopes[-1])
-            if target is None:
-                issues.append(f"workflow directory transition is unsupported at {scope_label}: {segment!r}")
-                return False
-            if tokens[0] == "pushd":
-                pushd_stacks[-1].append(scopes[-1])
-            scopes[-1] = target
-            current = scopes[0]
-            del current
-            return True
-        if tokens and tokens[0] in defined_functions:
-            issues.append(
-                f"shell function {tokens[0]!r} is invoked and its scope effects "
-                f"are not statically resolvable at {scope_label}"
-            )
-            return False
-        normalized = _normalize_invocation(segment)
-        if normalized is not None:
-            scoped.append((normalized, scopes[-1]))
-        return True
+    def fail(message: str) -> bool:
+        issues.append(message)
+        return False
 
-    for raw_line in _logical_shell_lines(_strip_command_substitutions(run)):
-        # 1) heredoc body consumption — before any function/conditional recognition.
-        if heredoc_end is not None:
-            if raw_line.strip() == heredoc_end:
-                heredoc_end = None
-            continue
-        # 2) function definition tracking — but a line inside an active heredoc never reaches here.
-        function_match = _FUNCTION_DEF.match(raw_line)
-        if function_match is not None:
-            defined_functions.add(function_match.group(1) or function_match.group(2))
-            function_depth = raw_line.count("{") - raw_line.count("}")
-            remainder = raw_line[raw_line.index("}") + 1 :] if function_depth <= 0 and "}" in raw_line else ""
-            if function_depth <= 0:
-                function_depth = None
-                for operator, segment in _split_ordered(remainder):
-                    del operator
-                    normalized = _normalize_invocation(segment)
-                    if normalized is not None:
-                        scoped.append((normalized, scopes[-1]))
-            continue
-        # 3) comment stripping — before conditional/loop/segment parsing.
-        line = _strip_shell_comment(raw_line).strip()
-        if if_depth > 0:
-            if line == "fi" or line.startswith("fi;") or line.startswith("fi "):
-                if_depth -= 1
-                remainder = line[2:].lstrip()
-                if remainder.startswith(";"):
-                    remainder = remainder[1:].strip()
-                if remainder and if_depth == 0:
-                    for operator, segment in _split_ordered(remainder):
-                        del operator
-                        normalized = _normalize_invocation(segment)
-                        if normalized is not None:
-                            scoped.append((normalized, scopes[-1]))
-                continue
-            if line.startswith("if ") or line == "if":
-                if_depth += 1
-                continue
-        if function_depth is not None:
-            function_depth += raw_line.count("{") - raw_line.count("}")
-            if function_depth <= 0:
-                function_depth = None
-            continue
-        # 4) loop headers fail closed
-        if line.startswith(("while ", "for ", "until ")) or line in {"while", "for", "until"}:
-            issues.append(f"unsupported loop control flow is not statically attributable at {scope_label}: {line!r}")
-            return scoped, issues
-        # 5) conditional opener: balanced one-liner inline, otherwise block depth
-        if line.startswith("if ") or line == "if":
-            segments = _split_ordered(line)
-            last_segment = segments[-1][1] if segments else ""
-            one_line_fi = last_segment == "fi" or last_segment.startswith("fi;") or last_segment.startswith("fi ")
-            for operator, segment in segments:
-                del operator
-                try:
-                    tokens = shlex.split(segment) if segment.strip() else []
-                except ValueError:
-                    issues.append(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
-                    return scoped, issues
-                inner = segment
-                while tokens and tokens[0] in {"then", "else", "elif", "fi", "done", "do", "{", "!", "if"}:
-                    tokens = tokens[1:]
-                    inner = " ".join(tokens)
-                if not tokens:
-                    continue
-                if tokens[0] in _TRANSITION_COMMANDS:
-                    issues.append(
-                        f"conditional control flow over a directory transition is unsupported at {scope_label}: {segment!r}"
-                    )
-                    return scoped, issues
-                normalized = _normalize_invocation(inner)
-                if normalized is not None:
-                    scoped.append((normalized, scopes[-1]))
-            if not one_line_fi:
-                if_depth += 1
-            continue
-        # 6) heredoc detection at segment level
-        segments = _split_ordered(line)
-        heredoc_index = None
-        for position, (_operator, segment) in enumerate(segments):
-            if _HEREDOC.search(segment):
-                heredoc_index = position
-                break
-        if heredoc_index is not None:
-            if heredoc_index == 0:
-                command_part = _HEREDOC.sub("", segments[0][1], count=1).strip()
-                if command_part:
-                    normalized = _normalize_invocation(command_part)
-                    if normalized is not None:
-                        scoped.append((normalized, scopes[-1]))
-            else:
-                for operator, segment in segments[:heredoc_index]:
-                    del operator
-                    try:
-                        tokens = shlex.split(segment) if segment.strip() else []
-                    except ValueError:
-                        issues.append(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
-                        return scoped, issues
-                    inner = segment
-                    while tokens and tokens[0] in {"then", "else", "elif", "fi", "done", "do", "{", "!", "if"}:
-                        tokens = tokens[1:]
-                        inner = " ".join(tokens)
-                    if not tokens:
-                        continue
-                    if tokens and tokens[0] in _TRANSITION_COMMANDS:
-                        target = _static_cd_target(tokens[1:], scopes[-1])
-                        if target is None:
-                            issues.append(f"workflow directory transition is unsupported at {scope_label}: {segment!r}")
-                            return scoped, issues
-                        scopes[-1] = target
-                        continue
-                    normalized = _normalize_invocation(inner)
-                    if normalized is not None:
-                        scoped.append((normalized, scopes[-1]))
-            heredoc_match = _HEREDOC.search(segments[heredoc_index][1])
-            heredoc_end = heredoc_match.group(2) if heredoc_match else None
-            continue
-        # 7) ordinary segments
+    def run_engine(segments: list[tuple[str | None, str]], conditional: bool, substitutions: list[str]) -> bool:
+        """The single ordered scope engine shared by every segment source."""
+        nonlocal last_was_transition
+        pending = list(substitutions)
         for operator, segment in segments:
             opens, closes, inner = _segment_scope_kind(segment)
-            if opens:
-                for _ in range(opens):
-                    scopes.append(scopes[-1])
-                    pushd_stacks.append(list(pushd_stacks[-1]))
+            for _ in range(opens):
+                scopes.append(scopes[-1])
+                pushd_stacks.append(list(pushd_stacks[-1]))
             effective = scopes[-1]
-            if not inner and closes:
-                pop_frames(min(closes, len(scopes) - 1))
-                continue
+            for _ in range(segment.count("SUBST$")):  # substitution bodies execute at marker scope
+                if not pending:
+                    break
+                substitution = pending.pop(0)
+                if not substitution.strip():
+                    continue
+                normalized = _normalize_invocation(substitution)
+                if normalized is None:
+                    return fail(
+                        f"command substitution invocation is not statically attributable "
+                        f"at {scope_label}: {substitution!r}"
+                    )
+                scoped.append((normalized, effective))
             try:
-                tokens = shlex.split(inner)
+                tokens = shlex.split(inner) if inner.strip() else []
             except ValueError:
-                issues.append(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
-                return scoped, issues
-            inner = " ".join(tokens) if tokens else inner
-            while tokens and tokens[0] in {"then", "else", "elif", "fi", "done", "do", "{", "!"}:
+                return fail(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
+            command = shlex.join(tokens)
+            while tokens and tokens[0] in _KEYWORDS:
                 tokens = tokens[1:]
-                inner = " ".join(tokens)
+                command = shlex.join(tokens) if tokens else ""
             if not tokens:
                 pop_frames(min(closes, len(scopes) - 1))
                 continue
             if operator == "||" and last_was_transition:
-                issues.append(
+                return fail(
                     f"conditional reachability after a directory transition is unresolved at {scope_label}: {segment!r}"
                 )
-            if tokens[0] in _TRANSITION_COMMANDS and operator not in (None, ";"):
-                issues.append(
+            if tokens[0] in _TRANSITION_COMMANDS and (operator not in (None, ";") or conditional):
+                return fail(
                     f"conditional control flow over a directory transition is unsupported at {scope_label}: {segment!r}"
                 )
-                return scoped, issues
             if tokens[0] in _TRANSITION_COMMANDS:
                 if tokens[0] == "popd":
-                    if pushd_stacks[-1] and len(tokens) == 1:
-                        target = pushd_stacks[-1].pop()
-                    else:
-                        target = None
+                    target = pushd_stacks[-1].pop() if pushd_stacks[-1] and len(tokens) == 1 else None
                 else:
                     target = _static_cd_target(tokens[1:], effective)
                 if target is None:
-                    issues.append(f"workflow directory transition is unsupported at {scope_label}: {segment!r}")
-                    return scoped, issues
+                    return fail(f"workflow directory transition is unsupported at {scope_label}: {segment!r}")
                 if tokens[0] == "pushd":
                     pushd_stacks[-1].append(effective)
                 scopes[-1] = target
@@ -238,20 +98,138 @@ def shell_invocations_with_scope(
                 last_was_transition = True
                 continue
             if tokens[0] in defined_functions:
-                issues.append(
+                return fail(
                     f"shell function {tokens[0]!r} is invoked and its scope effects "
                     f"are not statically resolvable at {scope_label}"
                 )
-                return scoped, issues
-            normalized = _normalize_invocation(inner)
+            normalized = _normalize_invocation(command)
             if normalized is not None:
                 scoped.append((normalized, effective))
             last_was_transition = False
             pop_frames(min(closes, len(scopes) - 1))
+        return True
 
-    # EOF-state diagnostics: no silently complete return with open structures.
+    def process(line: str, conditional: bool, substitutions: list[str]) -> bool:
+        return run_engine(_split_ordered(line), conditional, substitutions)
+
+    def definition_suffix(line: str, substitutions: list[str]) -> bool:
+        """Route a closed definition's same-line suffix through the ordered engine."""
+        if "}" not in line:
+            return True
+        suffix = line[line.index("}") + 1 :].strip()
+        return not suffix or process(suffix, if_depth > 0, substitutions)
+
+    def heredoc_strip(segments: list[tuple[str | None, str]]) -> tuple[list[tuple[str | None, str]], int] | None:
+        """Strip the first heredoc operator, record its delimiter, keep prefix segments."""
+        nonlocal heredoc_end
+        for position, (_operator, segment) in enumerate(segments):
+            opener = _HEREDOC.search(segment)
+            if opener is None:
+                continue
+            heredoc_end = opener.group(2)
+            stripped = [
+                (operator, _HEREDOC.sub("", segment, count=1) if index == position else segment)
+                for index, (operator, segment) in enumerate(segments[: position + 1])
+            ]
+            return stripped, position
+        return None
+
+    pending_substitution: list[str] | None = None
+    for raw_line in _logical_shell_lines(run):
+        if heredoc_end is not None:  # heredoc bodies are data: consumed before comment stripping
+            if raw_line.strip() == heredoc_end:
+                heredoc_end = None
+            continue
+        if pending_substitution is not None:  # a multi-line substitution span consumes continuation lines
+            pending_substitution.append(_strip_shell_comment(raw_line).strip())
+            folded, substitutions, unterminated = _strip_command_substitutions("\n".join(pending_substitution))
+            if unterminated:
+                continue
+            pending_substitution = None
+        else:
+            line = _strip_shell_comment(raw_line).strip()  # comments before structure matching
+            if not line:
+                continue
+            folded, substitutions, unterminated = _strip_command_substitutions(line)
+            if unterminated:  # span opens across lines: fold continuations before attribution
+                pending_substitution = [line]
+                continue
+        line = folded.strip()
+        if not line:
+            continue
+        if function_depth is not None:  # inside a definition body
+            opener = _HEREDOC.search(line)
+            if opener is not None:  # a body heredoc is data, never depth-relevant tokens
+                heredoc_end = opener.group(2)
+                prefix = _HEREDOC.sub("", line, count=1).strip()
+                if prefix and not process(prefix, True, substitutions):
+                    return scoped, issues
+                continue
+            function_depth += line.count("{") - line.count("}")
+            if function_depth <= 0:
+                function_depth = None
+                if not definition_suffix(line, substitutions):
+                    return scoped, issues
+            continue
+        definition = _FUNCTION_DEF.match(line)
+        if definition is not None:
+            defined_functions.add(definition.group(1) or definition.group(2))
+            function_depth = line.count("{") - line.count("}")
+            if function_depth <= 0:
+                function_depth = None
+                if not definition_suffix(line, substitutions):
+                    return scoped, issues
+            continue
+        if line.startswith(("while ", "for ", "until ")) or line in {"while", "for", "until"}:
+            issues.append(f"unsupported loop control flow is not statically attributable at {scope_label}: {line!r}")
+            return scoped, issues
+        if if_depth > 0:
+            if line == "fi" or line.startswith("fi;") or line.startswith("fi "):
+                if_depth -= 1
+                suffix = line[2:].strip()
+                if suffix.startswith(";"):
+                    suffix = suffix[1:].strip()
+                if suffix and if_depth == 0 and not process(suffix, False, substitutions):
+                    return scoped, issues
+                continue
+            if line.startswith("if ") or line == "if":
+                if_depth += 1
+                continue
+            opener = _HEREDOC.search(line)
+            if opener is not None:  # a body heredoc isolates its data from scope parsing
+                heredoc_end = opener.group(2)
+                prefix = _HEREDOC.sub("", line, count=1).strip()
+                if prefix and not process(prefix, True, substitutions):
+                    return scoped, issues
+                continue
+            if not process(line, True, substitutions):  # body invocations kept; transitions fail closed
+                return scoped, issues
+            continue
+        segments = _split_ordered(line)
+        if line.startswith("if ") or line == "if":  # opener: one-liner engine pass, else block depth
+            stripped = heredoc_strip(segments)
+            if stripped is not None:
+                segments, _ = stripped
+            one_line_fi = (
+                segments[-1][1] == "fi" or segments[-1][1].startswith("fi;") or segments[-1][1].startswith("fi ")
+            )
+            if not run_engine(segments, True, substitutions):
+                return scoped, issues
+            if not one_line_fi:
+                if_depth += 1
+            continue
+        stripped = heredoc_strip(segments)  # heredoc recognition precedes ordinary parsing
+        if stripped is not None:
+            if not run_engine(stripped[0], False, substitutions):
+                return scoped, issues
+            continue
+        if not run_engine(segments, False, substitutions):
+            return scoped, issues
+
     if heredoc_end is not None:
         issues.append(f"heredoc {heredoc_end!r} is unterminated at {scope_label}")
+    if pending_substitution is not None:
+        issues.append(f"command substitution is unterminated at {scope_label}")
     if if_depth > 0:
         issues.append(f"conditional block is unterminated at {scope_label}")
     if function_depth is not None:

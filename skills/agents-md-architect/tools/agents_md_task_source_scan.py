@@ -61,11 +61,17 @@ def _commands_from_surface(
             if discovery_files is None or not local_reference_resolves(reference, set(discovery_files))
         ]
         context = parent.checkout_context if parent is not None else None
-        pythonpath = parent.pythonpath if parent is not None else None
         return WorkflowCommandScan(
             tuple(
-                CommandSource(relative, cwd, command, command_origin(relative, text, command), context, pythonpath)
-                for command, cwd in scoped
+                CommandSource(
+                    relative,
+                    cwd,
+                    command,
+                    command_origin(relative, text, command),
+                    context,
+                    pythonpath if pythonpath is not None else (parent.pythonpath if parent is not None else None),
+                )
+                for command, cwd, pythonpath in scoped
             ),
             tuple(sorted({*scan_issues, *unresolved})),
         )

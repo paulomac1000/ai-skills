@@ -27,8 +27,11 @@ def _static_working_directory(value: str | None) -> str | None:
     return normalized
 
 
-def composite_action_invocations(text: str, relative: str) -> tuple[list[tuple[str, str]], list[str], list[str]]:
-    scoped: list[tuple[str, str]] = []
+def composite_action_invocations(
+    text: str, relative: str
+) -> tuple[list[tuple[str, str, str | None]], list[str], list[str]]:
+    """Return (command, working_directory, pythonpath) triples with per-step env (review dHfz)."""
+    scoped: list[tuple[str, str, str | None]] = []
     issues: list[str] = []
     references: list[str] = []
     root = _compose_yaml(text)
@@ -59,6 +62,21 @@ def composite_action_invocations(text: str, relative: str) -> tuple[list[tuple[s
         if non_scalar_wd:
             issues.append(f"composite step working-directory is unresolved at {relative} step {index}")
             continue
+        env = _mapping_value(step, "env")
+        if env is not None and not isinstance(env, MappingNode):
+            issues.append(f"composite step env is malformed at {relative} step {index}")
+            continue
+        step_pythonpath: str | None = None
+        if env is not None:
+            for key, value in env.value:
+                if key.value != "PYTHONPATH":
+                    continue
+                if not isinstance(value, ScalarNode):
+                    issues.append(f"composite step PYTHONPATH is unresolved at {relative} step {index}")
+                    continue
+                candidate = value.value.strip()
+                if candidate:
+                    step_pythonpath = candidate
         nested_uses = scalars.get("uses")
         if isinstance(nested_uses, str) and nested_uses.startswith("./"):
             references.append(nested_uses)
@@ -73,7 +91,7 @@ def composite_action_invocations(text: str, relative: str) -> tuple[list[tuple[s
         shell_kind = (scalars.get("shell") or "bash").strip().casefold()
         if shell_kind in {"pwsh", "powershell"}:
             for command in sorted(_extract_powershell_invocations(run_value)):
-                scoped.append((command, working_directory))
+                scoped.append((command, working_directory, step_pythonpath))
             continue
         if shell_kind not in {"bash", "sh"}:
             issues.append(f"composite step shell is unsupported at {relative} step {index}: {shell_kind!r}")
@@ -81,6 +99,6 @@ def composite_action_invocations(text: str, relative: str) -> tuple[list[tuple[s
         step_scoped, step_issues = shell_invocations_with_scope(
             run_value, working_directory, f"{relative} composite step {index}"
         )
-        scoped.extend(step_scoped)
+        scoped.extend((command, cwd, step_pythonpath) for command, cwd in step_scoped)
         issues.extend(step_issues)
     return scoped, issues, references

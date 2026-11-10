@@ -680,19 +680,24 @@ def _command_path_tokens(command: str) -> tuple[str, ...]:
         paths.append(candidate.as_posix())
     return tuple(paths)
 
-def _strip_command_substitutions(text: str) -> str:
-    """Replace $(...) spans with an opaque placeholder before shell parsing.
+def _strip_command_substitutions(line: str) -> tuple[str, list[str], bool]:
+    """Replace $(...) spans on one logical line with SUBST$ placeholders.
+
+    Returns the transformed line, every extracted substitution body in order,
+    and whether a substitution span never closed on this line (the caller must
+    fail closed on unterminated spans instead of guessing across lines).
 
     Substituted output is outside the bounded static grammar: quotes inside a
     substitution never toggle the outer shell quote state, and substitutions
     nested inside double quotes are opaque to the outer quote state too.
     """
     result: list[str] = []
+    extracted: list[str] = []
     index = 0
     quote: str | None = None
     escaped = False
-    while index < len(text):
-        character = text[index]
+    while index < len(line):
+        character = line[index]
         if escaped:
             result.append(character)
             escaped = False
@@ -703,16 +708,19 @@ def _strip_command_substitutions(text: str) -> str:
             escaped = True
             index += 1
             continue
-        in_double_quote = quote == '"'
-        if character == "$" and text.startswith("$(", index) and quote != "'":
+        if character == "$" and line.startswith("$(", index) and quote != "'":
             depth = 1
             index += 2
-            while index < len(text) and depth:
-                if text[index] == "(":
+            start = index
+            while index < len(line) and depth:
+                if line[index] == "(":
                     depth += 1
-                elif text[index] == ")":
+                elif line[index] == ")":
                     depth -= 1
                 index += 1
+            if depth:  # span never closed on this logical line
+                return "".join(result) + "SUBST$", extracted, True
+            extracted.append(line[start : index - 1])
             result.append("SUBST$")
             continue
         if quote is not None:
@@ -728,4 +736,4 @@ def _strip_command_substitutions(text: str) -> str:
             continue
         result.append(character)
         index += 1
-    return "".join(result)
+    return "".join(result), extracted, False
