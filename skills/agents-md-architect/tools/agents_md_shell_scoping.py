@@ -23,6 +23,7 @@ _FUNCTION_DEF = re.compile(r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z
 _HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 _KEYWORDS = {"then", "else", "elif", "fi", "done", "do", "{", "!", "if"}
 _TRANSITION_COMMANDS = {"cd", "pushd", "popd"}
+_LOOP_HEADS = {"while", "for", "until"}
 _MAX_SUBSTITUTION_DEPTH = 4
 _MAX_SUBSTITUTION_CHARS = 2048
 
@@ -35,13 +36,12 @@ def shell_invocations_with_scope(
     issues: list[str] = []
     scopes: list[str] = [base_directory]
     pushd_stacks: list[list[str]] = [[]]
-    conditional_frames: list[bool] = []
+    conditional_frames: list[bool] = []  # the single conditional-depth truth (v9hd)
     last_was_transition = False
     heredoc_end: str | None = None
     defined_functions: set[str] = set()
     function_depth: int | None = None
     pending_function_brace = False
-    if_depth = 0
 
     def pop_frames(count: int) -> None:
         for _ in range(min(count, len(scopes) - 1)):
@@ -52,9 +52,7 @@ def shell_invocations_with_scope(
         issues.append(message)
         return False
 
-    def run_engine(
-        segments: list[tuple[str | None, str]], substitutions: list[str], inline_state: dict[str, int]
-    ) -> bool:
+    def run_engine(segments: list[tuple[str | None, str]], substitutions: list[str]) -> bool:
         """The single ordered scope engine shared by every segment source."""
         nonlocal last_was_transition
         pending = list(substitutions)
@@ -64,7 +62,7 @@ def shell_invocations_with_scope(
                 scopes.append(scopes[-1])
                 pushd_stacks.append(list(pushd_stacks[-1]))
             effective = scopes[-1]
-            conditional_context = conditional_frames[-1] if conditional_frames else False
+            conditional_context = bool(conditional_frames)
             for _ in range(segment.count("SUBST$")):  # substitution bodies are isolated scopes
                 if not pending:
                     break
@@ -90,18 +88,18 @@ def shell_invocations_with_scope(
                 head = tokens[0]
                 tokens = tokens[1:]
                 if head == "if":  # ordered frames: opening pushes the conditional context (F1/F3)
-                    inline_state["depth"] += 1
                     conditional_frames.append(True)
                 elif head == "fi":  # closing restores the parent frame context (F3)
-                    inline_state["depth"] -= 1
                     if conditional_frames:
                         conditional_frames.pop()
-                    if inline_state["depth"] <= 0:
-                        inline_state["depth"] = 0
                 command = shlex.join(tokens) if tokens else ""
             if not tokens:
                 pop_frames(min(closes, len(scopes) - 1))
                 continue
+            if tokens[0] in _LOOP_HEADS:  # loop headers fail closed wherever they occur (v9hO)
+                return fail(
+                    f"unsupported loop control flow is not statically attributable at {scope_label}: {segment!r}"
+                )
             if operator == "||" and last_was_transition:
                 return fail(
                     f"conditional reachability after a directory transition is unresolved at {scope_label}: {segment!r}"
@@ -136,13 +134,7 @@ def shell_invocations_with_scope(
         return True
 
     def run_segments(segments: list[tuple[str | None, str]], substitutions: list[str]) -> bool:
-        """Engine pass that folds residual conditional opens into the block depth."""
-        nonlocal if_depth
-        inline_state = {"depth": 0}
-        if not run_engine(segments, substitutions, inline_state):
-            return False
-        if_depth += inline_state["depth"]
-        return True
+        return run_engine(segments, substitutions)
 
     def run_line(line: str, substitutions: list[str]) -> bool:
         return run_segments(_split_ordered(line), substitutions)
@@ -230,20 +222,14 @@ def shell_invocations_with_scope(
             else:
                 pending_function_brace = True  # ok_b: opening brace expected on a following line
             continue
-        if line.startswith(("while ", "for ", "until ")) or line in {"while", "for", "until"}:
-            issues.append(f"unsupported loop control flow is not statically attributable at {scope_label}: {line!r}")
-            return scoped, issues
-        if if_depth > 0:
+        if conditional_frames:  # conditional context active: body routing (v9hd)
             if line == "fi" or line.startswith("fi;") or line.startswith("fi "):
-                if_depth -= 1
-                if conditional_frames:  # the closing fi restores its parent conditional frame (F3)
-                    conditional_frames.pop()
+                conditional_frames.pop()
                 suffix = line[2:].strip()
                 if suffix.startswith(";"):
                     suffix = suffix[1:].strip()
-                # qpx-: an inner fi's suffix runs with the INHERITED frame context — never
-                # silently dropped while an outer conditional is still open, and never made
-                # unconditional by the inner close.
+                # qpx-: the suffix runs with the INHERITED frame context — the engine itself
+                # keeps a still-open outer conditional fail-closed and applies top-level ones.
                 if suffix and not run_line(suffix, substitutions):
                     return scoped, issues
                 continue
@@ -271,8 +257,6 @@ def shell_invocations_with_scope(
         issues.append(f"command substitution is unterminated at {scope_label}")
     if pending_function_brace:
         issues.append(f"function definition is missing its opening brace at {scope_label}")
-    if if_depth > 0:
-        issues.append(f"conditional block is unterminated at {scope_label}")
     if conditional_frames:
         issues.append(f"conditional block is unterminated at {scope_label}")
     if function_depth is not None:

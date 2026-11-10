@@ -401,6 +401,32 @@ def test_top_level_fi_suffix_transition_still_applies() -> None:
     assert ("python check.py", "tools") in scoped
 
 
+# ---------- v9hO / v9hd (Codex round on 296f244) ----------
+
+
+def test_mid_stream_loop_header_fails_closed() -> None:
+    scoped, issues = _scoped_issues("echo begin; while false; do cd tools; done\npython check.py\n")
+    assert not any(scope == "tools" for _command, scope in scoped)
+    assert issues and "loop control flow" in issues[0]
+
+
+def test_line_leading_loop_header_fails_closed() -> None:
+    _scoped, issues = _scoped_issues("while false; do cd tools; done\npython check.py\n")
+    assert issues and "loop control flow" in issues[0]
+
+
+def test_segment_level_fi_closes_block_conditional() -> None:
+    scoped, issues = _scoped_issues("if true; then\necho done; fi\npython check.py\n")
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+
+
+def test_segment_level_fi_then_unconditional_cd_applies() -> None:
+    scoped, issues = _scoped_issues("if false; then\necho done; fi; cd tools\npython check.py\n")
+    assert issues == []
+    assert ("python check.py", "tools") in scoped
+
+
 # ---------- 5840414479: F1/F2/F3 ----------
 
 
