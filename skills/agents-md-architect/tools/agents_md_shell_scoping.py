@@ -55,11 +55,16 @@ def shell_invocations_with_scope(
 
     def run_engine(segments: list[tuple[str | None, str]], substitutions: list[str]) -> bool:
         """The single ordered scope engine shared by every segment source."""
-        nonlocal last_was_transition, function_depth, pending_function_brace
+        nonlocal last_was_transition, function_depth, pending_function_brace, heredoc_end
         for operator, segment in segments:
             definition_head = _FUNCTION_DEF.match(segment)
             if definition_head is not None:  # 2BaK: raw-segment match — parens stay intact
                 defined_functions.add(definition_head.group(1) or definition_head.group(2))
+                opener = _HEREDOC.search(segment)
+                if opener is not None:  # 66eF: declaration-line heredoc — contents are data
+                    heredoc_end = opener.group(2)
+                    function_depth = max(1, _structural_brace_delta(segment[: opener.start()]))
+                    return True
                 close = _structural_close_index(segment)
                 if close is not None:  # inline closed: inert body skipped, suffix executed
                     suffix_segments = _split_ordered(segment[close:].strip())
@@ -102,6 +107,11 @@ def shell_invocations_with_scope(
             definition_head = _FUNCTION_DEF.match(inner)
             if definition_head is not None:  # 2BaK: definitions are recognized anywhere in the stream
                 defined_functions.add(definition_head.group(1) or definition_head.group(2))
+                opener = _HEREDOC.search(inner)
+                if opener is not None:  # 66eF: declaration-line heredoc — contents are data
+                    heredoc_end = opener.group(2)
+                    function_depth = max(1, _structural_brace_delta(inner[: opener.start()]))
+                    return True
                 close = _structural_close_index(inner)
                 delta = _structural_brace_delta(inner)
                 if close is not None:  # inline closed: inert body skipped, suffix executed
@@ -134,13 +144,24 @@ def shell_invocations_with_scope(
             if not tokens:
                 pop_frames(min(closes, len(scopes) - 1))
                 continue
-            if tokens[0] in {"command", "builtin"}:  # 2BaN: literal wrapper around a directory builtin
-                if len(tokens) > 1 and tokens[1].startswith("-") and tokens[1] != "-v":
+            transition_tokens = tokens
+            while transition_tokens and re.match(
+                r"^[A-Za-z_][A-Za-z0-9_]*=", transition_tokens[0]
+            ):  # 7JU6: assignment-prefixed commands — strip for builtin identification
+                name, _, value = transition_tokens[0].partition("=")
+                if name == "CDPATH" and value:  # CDPATH alters cd resolution — fail closed
+                    return fail(f"CDPATH-qualified directory transition is unsupported at {scope_label}: {segment!r}")
+                transition_tokens = transition_tokens[1:]
+            if not transition_tokens:
+                pop_frames(min(closes, len(scopes) - 1))
+                continue
+            if transition_tokens[0] in {"command", "builtin"}:  # 2BaN: literal wrapper around a directory builtin
+                if len(transition_tokens) > 1 and transition_tokens[1].startswith("-") and transition_tokens[1] != "-v":
                     return fail(f"builtin wrapper flag is not statically attributable at {scope_label}: {segment!r}")
-                if len(tokens) > 1:
-                    tokens = tokens[1:]
-                    command = shlex.join(tokens) if tokens else ""
-            if any(token in {";", "}"} for token in tokens) or _has_structural_brace_group(inner):
+                if len(transition_tokens) > 1:
+                    transition_tokens = transition_tokens[1:]
+                    command = shlex.join(transition_tokens) if transition_tokens else ""
+            if any(token in {";", "}"} for token in transition_tokens) or _has_structural_brace_group(inner):
                 # 2BaK: protected brace group — ordered token groups. Whitespace
                 # splitting GLUES the operand to a trailing separator
                 # (`cd tools;` → the single token 'tools;'), so the group is
@@ -175,7 +196,9 @@ def shell_invocations_with_scope(
                     return False
                 pop_frames(min(closes, len(scopes) - 1))
                 continue
-            if tokens[0] in _LOOP_HEADS:  # loop headers fail closed wherever they occur (v9hO)
+            if transition_tokens[0] in {"case", "esac"}:  # 66eP: case arms are outside the bounded grammar
+                return fail(f"case construct is not statically attributable at {scope_label}: {segment!r}")
+            if transition_tokens[0] in _LOOP_HEADS:  # loop headers fail closed wherever they occur (v9hO)
                 return fail(
                     f"unsupported loop control flow is not statically attributable at {scope_label}: {segment!r}"
                 )
@@ -183,24 +206,24 @@ def shell_invocations_with_scope(
                 return fail(
                     f"conditional reachability after a directory transition is unresolved at {scope_label}: {segment!r}"
                 )
-            if tokens[0] in _TRANSITION_COMMANDS and (operator not in (None, ";") or conditional_context):
+            if transition_tokens[0] in _TRANSITION_COMMANDS and (operator not in (None, ";") or conditional_context):
                 return fail(
                     f"conditional control flow over a directory transition is unsupported at {scope_label}: {segment!r}"
                 )
-            if tokens[0] in _TRANSITION_COMMANDS:
-                if tokens[0] == "popd":
-                    target = pushd_stacks[-1].pop() if pushd_stacks[-1] and len(tokens) == 1 else None
+            if transition_tokens[0] in _TRANSITION_COMMANDS:
+                if transition_tokens[0] == "popd":
+                    target = pushd_stacks[-1].pop() if pushd_stacks[-1] and len(transition_tokens) == 1 else None
                 else:
-                    target = _static_cd_target(tokens[1:], effective)
+                    target = _static_cd_target(transition_tokens[1:], effective)
                 if target is None:
                     return fail(f"workflow directory transition is unsupported at {scope_label}: {segment!r}")
-                if tokens[0] == "pushd":
+                if transition_tokens[0] == "pushd":
                     pushd_stacks[-1].append(effective)
                 scopes[-1] = target
                 pop_frames(min(closes, len(scopes) - 1))
                 last_was_transition = True
                 continue
-            if tokens[0] in defined_functions:
+            if transition_tokens[0] in defined_functions:
                 return fail(
                     f"shell function {tokens[0]!r} is invoked and its scope effects "
                     f"are not statically resolvable at {scope_label}"
@@ -292,6 +315,11 @@ def shell_invocations_with_scope(
         if definition is not None:
             defined_functions.add(definition.group(1) or definition.group(2))
             delta = _structural_brace_delta(line)
+            opener = _HEREDOC.search(line)
+            if opener is not None:  # 66eF: declaration-line heredoc — contents are data
+                heredoc_end = opener.group(2)
+                function_depth = max(1, delta)
+                continue
             if delta > 0:
                 function_depth = delta  # same-line opening brace: body follows
             elif delta < 0:

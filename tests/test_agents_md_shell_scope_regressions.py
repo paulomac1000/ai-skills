@@ -462,6 +462,35 @@ def test_unsupported_wrapper_flag_fails_closed() -> None:
     assert issues and "wrapper flag" in issues[0]
 
 
+# ---------- 66eF / 66eP / 7JU6 (Codex round on 3e1162f) ----------
+
+
+def test_declaration_line_heredoc_contents_are_data() -> None:
+    scoped, issues = _scoped_issues("helper() { cat <<'EOF'\n}\ncd tools\nEOF\n}\npython check.py\n")
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+    assert not any(scope == "tools" for _command, scope in scoped)
+
+
+def test_case_construct_fails_closed() -> None:
+    scoped, issues = _scoped_issues("case x in\ny)\ncd tools\n;;\nesac\npython check.py\n")
+    assert not any(scope == "tools" for _command, scope in scoped)
+    assert issues and "case construct" in issues[0]
+
+
+def test_assignment_prefixed_cd_applies_transition() -> None:
+    scoped, issues = _scoped_issues("cd tools\nCDPATH= cd ..\npython check.py\n")
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+    assert not any(command == "python check.py" and scope == "tools" for command, scope in scoped)
+
+
+def test_cdpath_qualified_cd_fails_closed() -> None:
+    scoped, issues = _scoped_issues("CDPATH=/opt cd tools\npython check.py\n")
+    assert not any(scope == "tools" for _command, scope in scoped)
+    assert issues and "CDPATH" in issues[0]
+
+
 # ---------- 5840414479: F1/F2/F3 ----------
 
 
