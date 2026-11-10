@@ -99,3 +99,33 @@ def _static_cd_target(tokens: list[str], current: str) -> str | None:
     if joined == ".." or joined.startswith("../"):
         return None
     return joined
+
+
+def _structural_brace_delta(line: str) -> int:
+    """Count structural braces outside quotes, escapes and line continuations.
+
+    Quoted or escaped braces are shell data (review C / 5839793113) and never
+    contribute to function-body depth. The caller strips comments beforehand.
+    """
+    quote: str | None = None
+    escaped = False
+    delta = 0
+    for character in line:
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            continue
+        if character in "'\"":
+            quote = character
+            continue
+        if character == "{":
+            delta += 1
+        elif character == "}":
+            delta -= 1
+    return delta

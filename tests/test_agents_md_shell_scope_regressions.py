@@ -328,3 +328,42 @@ def test_pipeline_heredoc_stage_stays_in_surface() -> None:
 def test_multiple_heredoc_redirections_fail_closed() -> None:
     _scoped, issues = _scoped_issues("cat <<A <<B\npayload\nB\nA\npython check.py\n")
     assert issues and "multiple heredoc" in issues[0]
+
+
+# ---------- ok_b / ok_o / 5839793113: function braces and conditional order ----------
+
+
+def test_next_line_function_brace_does_not_execute_uncalled_body() -> None:
+    scoped, issues = _scoped_issues("helper()\n{\ncd tools\n}\npython check.py\n")
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+    assert not any(scope == "tools" for _command, scope in scoped)
+
+
+def test_missing_function_brace_fails_closed() -> None:
+    _scoped, issues = _scoped_issues("helper()\npython check.py\n")
+    assert issues and "opening brace" in issues[-1]
+
+
+def test_quoted_closing_brace_keeps_function_open() -> None:
+    scoped, issues = _scoped_issues("helper() { printf '}'\ncd tools\n}\npython check.py\n")
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+    assert not any(scope == "tools" for _command, scope in scoped)
+
+
+def test_inline_fi_before_suffix_closes_conditional_before_cd() -> None:
+    scoped, issues = _scoped_issues("if true; then :; fi; echo done\ncd tools\npython check.py\n")
+    assert issues == []
+    assert ("python check.py", "tools") in scoped
+    assert not any(command == "python check.py" and scope == "." for command, scope in scoped)
+
+
+def test_inline_conditional_transition_fail_closed_is_preserved() -> None:
+    _scoped, issues = _scoped_issues("if false; then cd tools; fi\npython check.py\n")
+    assert issues and "directory transition" in issues[0]
+
+
+def test_function_invocation_still_fails_closed() -> None:
+    _scoped, issues = _scoped_issues("helper() { echo yes; }\nhelper\npython check.py\n")
+    assert issues and "helper" in issues[0]
