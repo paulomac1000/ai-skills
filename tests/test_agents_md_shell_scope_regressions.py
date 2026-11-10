@@ -427,6 +427,41 @@ def test_segment_level_fi_then_unconditional_cd_applies() -> None:
     assert ("python check.py", "tools") in scoped
 
 
+# ---------- 2BaK / 2BaN (Codex round on a46f941) ----------
+
+
+def test_prefixed_function_definition_body_is_inert() -> None:
+    scoped, issues = _scoped_issues("echo begin; helper() { :; cd tools; }; python check.py\n")
+    assert issues == []
+    assert ("echo begin", ".") in scoped
+    assert ("python check.py", ".") in scoped
+    assert not any(scope == "tools" for _command, scope in scoped)
+
+
+def test_prefixed_function_definition_multiline_body_is_inert() -> None:
+    scoped, issues = _scoped_issues("echo begin; helper()\n{\ncd tools\n}\npython check.py\n")
+    assert not any(scope == "tools" for _command, scope in scoped)
+    assert ("python check.py", ".") in scoped
+
+
+def test_command_wrapped_cd_applies_transition() -> None:
+    scoped, issues = _scoped_issues("cd tools; command cd ..; python check.py\n")
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+    assert not any(command == "python check.py" and scope == "tools" for command, scope in scoped)
+
+
+def test_command_v_lookup_stays_surface_without_transition() -> None:
+    scoped, issues = _scoped_issues("command -v cd\npython check.py\n")
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+
+
+def test_unsupported_wrapper_flag_fails_closed() -> None:
+    _scoped, issues = _scoped_issues("command -x cd tools\npython check.py\n")
+    assert issues and "wrapper flag" in issues[0]
+
+
 # ---------- 5840414479: F1/F2/F3 ----------
 
 
@@ -485,3 +520,51 @@ def test_metamorphic_extra_enclosing_conditional_keeps_ownership() -> None:
     single = _checkpy_ownership("if true; then python check.py; fi\n")
     nested = _checkpy_ownership("if true; then if true; then python check.py; fi; fi\n")
     assert single == nested
+
+
+# ---------- round 14 (Codex 2BaK / 2BaN): mid-stream definitions and wrapped builtins ----------
+
+
+def test_mid_stream_function_definition_body_is_inert_and_suffix_runs_at_root() -> None:
+    """Codex 2BaK: `echo begin; helper() { :; cd tools; }; python check.py`."""
+    scoped = _scoped("echo begin; helper() { :; cd tools; }; python check.py\n")
+    assert ("python check.py", ".") in scoped, "the same-line suffix runs at the ambient scope"
+    assert not any(scope == "tools" for _command, scope in scoped), "the uncalled body's cd is inert"
+
+
+def test_mid_stream_multiline_function_body_transfers_to_line_branch() -> None:
+    """Codex 2BaK: the body may close on a later line of the same workflow."""
+    scoped = _scoped("echo begin; helper() {\ncd tools\n}\npython check.py\n")
+    assert ("python check.py", ".") in scoped
+    assert not any(scope == "tools" for _command, scope in scoped)
+
+
+def test_wrapped_builtin_transition_is_applied() -> None:
+    """Codex 2BaN: `command cd ..` is a real directory transition."""
+    scoped = _scoped("cd tools; command cd ..; python check.py\n")
+    assert ("python check.py", ".") in scoped
+    assert not any(scope == "tools" for _command, scope in scoped)
+
+
+def test_builtin_lookup_is_preserved_without_transition() -> None:
+    """`command -v cd` is a lookup-only invocation, never a transition."""
+    scoped = _scoped("command -v cd; python check.py\n")
+    assert ("python check.py", ".") in scoped
+
+
+def test_unsupported_builtin_wrapper_flag_fails_closed() -> None:
+    scoped, issues = _scoped_issues("command -f cd; python check.py\n")
+    assert issues and "builtin wrapper flag" in issues[0]
+
+
+def test_brace_aware_split_keeps_semicolons_inside_bodies_whole() -> None:
+    """The definition body's own separators never split the ordered stream."""
+    scoped = _scoped("helper() { printf a; printf b; }; python check.py\n")
+    assert ("python check.py", ".") in scoped
+
+
+def test_seeded_definition_invocation_still_fails_closed() -> None:
+    """An INVOKED defined function keeps failing closed (2BaK's inert-body
+    fix must not turn uncalled definitions into callable no-ops)."""
+    scoped, issues = _scoped_issues("helper() { :; cd tools; }\nhelper\npython check.py\n")
+    assert issues and "helper" in issues[0]

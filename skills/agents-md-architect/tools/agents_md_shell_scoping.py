@@ -54,9 +54,26 @@ def shell_invocations_with_scope(
 
     def run_engine(segments: list[tuple[str | None, str]], substitutions: list[str]) -> bool:
         """The single ordered scope engine shared by every segment source."""
-        nonlocal last_was_transition
+        nonlocal last_was_transition, function_depth, pending_function_brace
         pending = list(substitutions)
         for operator, segment in segments:
+            definition_head = _FUNCTION_DEF.match(segment)
+            if definition_head is not None:  # 2BaK: raw-segment match — parens stay intact
+                defined_functions.add(definition_head.group(1) or definition_head.group(2))
+                close = _structural_close_index(segment)
+                if close is not None:  # inline closed: inert body skipped, suffix executed
+                    suffix_segments = _split_ordered(segment[close:].strip())
+                    if suffix_segments and not run_segments(suffix_segments, substitutions):
+                        return False
+                    continue
+                delta = _structural_brace_delta(segment)
+                if delta > 0:  # multiline body opened mid-stream
+                    function_depth = delta
+                    return True  # subsequent lines route through the body branch
+                if delta < 0:
+                    return fail(f"function definition brace balance is unsupported at {scope_label}: {segment!r}")
+                pending_function_brace = True  # opening brace expected on a following line
+                return True
             opens, closes, inner = _segment_scope_kind(segment)
             for _ in range(opens):
                 scopes.append(scopes[-1])
@@ -79,11 +96,29 @@ def shell_invocations_with_scope(
                 )
                 scoped.extend(nested_scoped)
                 issues.extend(nested_issues)
+            definition_head = _FUNCTION_DEF.match(inner)
+            if definition_head is not None:  # 2BaK: definitions are recognized anywhere in the stream
+                defined_functions.add(definition_head.group(1) or definition_head.group(2))
+                close = _structural_close_index(inner)
+                delta = _structural_brace_delta(inner)
+                if close is not None:  # inline closed: inert body skipped, suffix executed
+                    suffix_inner = inner[close:].strip()
+                    if suffix_inner and not run_engine(_split_ordered(suffix_inner), substitutions):
+                        return False
+                    pop_frames(min(closes, len(scopes) - 1))
+                    continue
+                if delta > 0:  # multiline body opened mid-stream
+                    function_depth = delta
+                    return True  # subsequent lines route through the body branch
+                if delta < 0:
+                    return fail(f"function definition brace balance is unsupported at {scope_label}: {segment!r}")
+                pending_function_brace = True  # opening brace expected on a following line
+                return True
             try:
                 tokens = shlex.split(inner) if inner.strip() else []
             except ValueError:
                 return fail(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
-            command = shlex.join(tokens)
+            command = inner  # original slice preserves GH expressions and argument boundaries (ccTD)
             while tokens and tokens[0] in _KEYWORDS:
                 head = tokens[0]
                 tokens = tokens[1:]
@@ -94,6 +129,43 @@ def shell_invocations_with_scope(
                         conditional_frames.pop()
                 command = shlex.join(tokens) if tokens else ""
             if not tokens:
+                pop_frames(min(closes, len(scopes) - 1))
+                continue
+            if tokens[0] in {"command", "builtin"}:  # 2BaN: literal wrapper around a directory builtin
+                if len(tokens) > 1 and tokens[1].startswith("-") and tokens[1] != "-v":
+                    return fail(f"builtin wrapper flag is not statically attributable at {scope_label}: {segment!r}")
+                if len(tokens) > 1:
+                    tokens = tokens[1:]
+                    command = shlex.join(tokens) if tokens else ""
+            if any(token in {";", "}"} for token in tokens) or ("{" in inner and ";" in inner):
+                # 2BaK: protected brace group — ordered token groups. Whitespace
+                # splitting GLUES the operand to a trailing separator
+                # (`cd tools;` → the single token 'tools;'), so the group is
+                # re-tokenized with shlex punctuation chars: the separators and
+                # structural braces split, words stay whole.
+                try:
+                    reader = shlex.shlex(inner, posix=True, punctuation_chars=";{}")
+                    reader.whitespace_split = True
+                    tokens = list(reader)
+                except ValueError:
+                    return fail(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
+                group_segments: list[tuple[str | None, str]] = []
+                group_tokens: list[str] = []
+                group_operator = operator
+                for token in tokens:
+                    if token in {"{", "}"}:
+                        continue  # structural brace of the protected group, not command data
+                    if token == ";":
+                        if group_tokens:
+                            group_segments.append((group_operator, shlex.join(group_tokens)))
+                            group_tokens = []
+                        group_operator = ";"
+                        continue
+                    group_tokens.append(token)
+                if group_tokens:
+                    group_segments.append((group_operator, shlex.join(group_tokens)))
+                if group_segments and not run_engine(group_segments, substitutions):
+                    return False
                 pop_frames(min(closes, len(scopes) - 1))
                 continue
             if tokens[0] in _LOOP_HEADS:  # loop headers fail closed wherever they occur (v9hO)

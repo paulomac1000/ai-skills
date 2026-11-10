@@ -8,12 +8,23 @@ _SUPPORTED_CD_FLAGS = {"-P", "-L"}
 
 
 def _split_ordered(command: str) -> list[tuple[str | None, str]]:
-    """Split at unquoted ``;``/``&&``/``||`` preserving order and the preceding operator."""
+    """Split at unquoted ``;``/``&&``/``||`` preserving order and the preceding operator.
+
+    Brace-aware (review 2BaK): separators inside structural ``{ ... }`` — e.g. the
+    body of a function definition — never split, so definitions stay whole for the
+    ordered engine. ``${{ ... }}`` runner expressions are TRANSPARENT: the runner
+    expands them before bash runs, their braces are not function bodies, and their
+    internal separators have always split the stream (the workflow reference
+    extractor depends on that segment shape). Quote/escape state is tracked
+    throughout.
+    """
     ordered: list[tuple[str | None, str]] = []
     operator: str | None = None
     current: list[str] = []
     quote: str | None = None
     escaped = False
+    brace_depth = 0
+    expression = False
     index = 0
     while index < len(command):
         character = command[index]
@@ -38,13 +49,38 @@ def _split_ordered(command: str) -> list[tuple[str | None, str]]:
             current.append(character)
             index += 1
             continue
+        if not expression and command.startswith("${{", index):
+            # Round 14: the expression delimiters are recognized so their
+            # braces never count as function-body braces, but the span stays
+            # TRANSPARENT to separator splitting (the historical segment
+            # shape the workflow reference extractor depends on).
+            expression = True
+            current.append("${{")
+            index += 3
+            continue
+        if expression and command.startswith("}}", index):
+            expression = False
+            current.append("}}")
+            index += 2
+            continue
+        if character == "{":
+            brace_depth += 1
+            current.append(character)
+            index += 1
+            continue
+        if character == "}":
+            brace_depth -= 1
+            current.append(character)
+            index += 1
+            continue
         separator = ""
-        if character == ";":
-            separator = ";"
-        elif command.startswith("&&", index):
-            separator = "&&"
-        elif command.startswith("||", index):
-            separator = "||"
+        if brace_depth == 0:
+            if character == ";":
+                separator = ";"
+            elif command.startswith("&&", index):
+                separator = "&&"
+            elif command.startswith("||", index):
+                separator = "||"
         if separator:
             segment = "".join(current).strip()
             if segment:
