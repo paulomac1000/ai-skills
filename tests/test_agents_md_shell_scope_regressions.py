@@ -260,7 +260,13 @@ def test_substitution_scope_cannot_mutate_parent_directory() -> None:
 def test_substitution_recursion_and_size_envelope_fail_closed() -> None:
     deep = 'echo "$(echo "$(echo "$(echo "$(echo "$(python x.py)")")")")")"'
     _scoped, issues = _scoped_issues(deep)
-    assert issues and "bounded static analysis envelope" in issues[0]
+    # Round 16: the descent now fail-closes on the FIRST typed boundary it
+    # meets — either the bounded substitution envelope, or the statically
+    # unparseable partial-fold leftover left by the quote-aware span scan.
+    # Both are deliberate fail-closed outcomes; neither attributes x.py.
+    assert issues, "the deep substitution nesting must fail closed"
+    assert "bounded static analysis envelope" in issues[0] or "statically parseable" in issues[0], issues[0]
+    assert not any("x.py" in command for command, _scope in _scoped)
 
 
 # ---------- hTzu: quoted parentheses inside substitutions ----------
@@ -655,3 +661,58 @@ def test_full_classifier_counts_real_not_ghost(tmp_path: Path) -> None:
     assert "real.py" in counted, "the actually executed script is counted"
     assert "tools/ghost.py" not in counted, "the uncalled body's script is never counted"
     assert inventory.issues == ()
+
+
+# ---------- round 16 (Codex 17JVB / 17Zd0 / 17Zd7 / 17Zp) ----------
+
+
+def test_brace_group_boolean_operator_fails_closed() -> None:
+    """Codex 17JVB: `&&`/`||` inside a brace group stay OPERATORS — the
+    ordered engine's transition/conditional rules fire (typed refusal);
+    the group's directory change can never misattribute the follow-up."""
+    scoped, issues = _scoped_issues("cd tools\n{ true && cd ..; }\npython check.py\n")
+    assert issues and "conditional control flow" in issues[0]
+    assert not any(command == "python check.py" for command, _scope in scoped)
+
+
+def test_defined_function_shadowing_builtin_fails_closed() -> None:
+    """Codex 17Zd0: a defined `cd()` shadows the builtin — the transition is
+    refused (the function's scope effects are unresolvable) unless the call
+    is explicitly wrapped as command/builtin."""
+    scoped, issues = _scoped_issues("cd() { :; }\ncd tools\npython check.py\n")
+    assert issues and "overrides the directory builtin" in issues[0]
+    assert not any(scope == "tools" for _command, scope in scoped)
+
+
+def test_wrapped_builtin_bypasses_function_override() -> None:
+    """The explicit `command cd` wrapper bypasses the shadowing function and
+    performs the REAL transition."""
+    scoped = _scoped("cd() { :; }\ncommand cd tools\npython check.py\n")
+    assert ("python check.py", "tools") in scoped
+
+
+def test_heredoc_terminator_requires_exact_delimiter() -> None:
+    """Codex 17Zd7: `<<EOF` accepts only the exact delimiter line; a
+    space-indented lookalike stays DATA, so the body's commands are never
+    attributed."""
+    scoped, issues = _scoped_issues("cat <<EOF\n EOF\ncd tools\nEOF\npython check.py\n")
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+    assert not any(command in {"EOF", "cd tools"} for command, _scope in scoped)
+
+
+def test_dashed_heredoc_strips_only_leading_tabs() -> None:
+    """`<<-EOF` strips leading TABS from the terminator — never spaces."""
+    scoped, issues = _scoped_issues("cat <<-EOF\n\tcd tools\n\tEOF\npython check.py\n")
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+    assert not any(scope == "tools" for _command, scope in scoped)
+
+
+def test_substitution_analyzed_once_at_effective_scope() -> None:
+    """Codex 17Zp: a substitution inside a brace group is analyzed EXACTLY
+    ONCE, at the scope that actually executes it (tools) — never double-
+    counted at the enclosing scope."""
+    scoped = _scoped('{ cd tools; echo "$(python check.py)"; }\n')
+    entries = [entry for entry in scoped if "check.py" in entry[0]]
+    assert entries == [("python check.py", "tools")], entries
