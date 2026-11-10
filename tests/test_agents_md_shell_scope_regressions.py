@@ -239,3 +239,92 @@ def test_quoted_pythonpath_counts_the_actual_source(tmp_path: Path) -> None:
     assert ".github/workflows/ci.yml" in counted
     assert "vendor libs/check.py" in counted
     assert "vendor/check.py" not in counted
+
+
+# ---------- hTzs: independent command-substitution scope ----------
+
+
+def test_command_substitution_has_independent_directory_scope() -> None:
+    scoped = _scoped('cd tools\necho "$(cd nested; python check.py)"\npython after.py\n')
+    assert ("python check.py", "tools/nested") in scoped
+    assert ("python after.py", "tools") in scoped
+    assert not any(command == "python check.py" and scope == "tools" for command, scope in scoped)
+
+
+def test_substitution_scope_cannot_mutate_parent_directory() -> None:
+    scoped = _scoped('echo "$(cd somewhere; python inner.py)"\npython after.py\n')
+    assert ("python inner.py", "somewhere") in scoped
+    assert ("python after.py", ".") in scoped
+
+
+def test_substitution_recursion_and_size_envelope_fail_closed() -> None:
+    deep = 'echo "$(echo "$(echo "$(echo "$(echo "$(python x.py)")")")")")"'
+    _scoped, issues = _scoped_issues(deep)
+    assert issues and "bounded static analysis envelope" in issues[0]
+
+
+# ---------- hTzu: quoted parentheses inside substitutions ----------
+
+
+def test_literal_open_paren_in_substitution_body_is_data() -> None:
+    scoped = _scoped("tag=\"$(printf '(')\"\npython check.py\n")
+    assert any(command == "printf '('" for command, _scope in scoped)
+    assert ("python check.py", ".") in scoped
+
+
+def test_literal_close_paren_in_substitution_body_is_data() -> None:
+    scoped = _scoped("tag=\"$(printf ')')\"\npython check.py\n")
+    assert any(command == "printf ')'" for command, _scope in scoped)
+    assert ("python check.py", ".") in scoped
+
+
+def test_unbalanced_substitution_body_fails_closed() -> None:
+    _scoped, issues = _scoped_issues("tag=\"$(echo '('\"\npython check.py\n")
+    assert issues and "substitution" in issues[-1]
+
+
+def test_nested_substitution_body_boundary_is_preserved() -> None:
+    scoped = _scoped('a="$(echo $(python inner.py))"\npython check.py\n')
+    assert ("python check.py", ".") in scoped
+
+
+# ---------- hTzz: balanced nested conditionals ----------
+
+
+def test_balanced_nested_one_line_conditional_is_processed() -> None:
+    scoped, issues = _scoped_issues("if true; then\n    if true; then python check.py; fi\nfi\npython after.py\n")
+    assert issues == []
+    assert ("python check.py", ".") in scoped
+    assert ("python after.py", ".") in scoped
+
+
+def test_nested_conditional_transition_fails_closed() -> None:
+    _scoped, issues = _scoped_issues("if true; then\n    if true; then cd nested; fi\nfi\npython check.py\n")
+    assert issues and "directory transition" in issues[0]
+
+
+def test_multiline_nested_conditional_keeps_depth_balanced() -> None:
+    scoped, issues = _scoped_issues(
+        "if true; then\n    if false; then\npython nested_check.py\n    fi\nfi\npython after.py\n"
+    )
+    assert ("python nested_check.py", ".") in scoped
+    assert ("python after.py", ".") in scoped
+    assert not any("unterminated" in issue for issue in issues)
+
+
+# ---------- heredoc same-line suffix (review 5838117760) ----------
+
+
+def test_command_after_same_line_heredoc_is_retained() -> None:
+    scoped = _scoped("cat <<EOF; python check.py\npayload\nEOF\n")
+    assert ("python check.py", ".") in scoped
+
+
+def test_pipeline_heredoc_stage_stays_in_surface() -> None:
+    scoped = _scoped("cat <<EOF | python check.py\npayload\nEOF\n")
+    assert any("python check.py" in command for command, _scope in scoped)
+
+
+def test_multiple_heredoc_redirections_fail_closed() -> None:
+    _scoped, issues = _scoped_issues("cat <<A <<B\npayload\nB\nA\npython check.py\n")
+    assert issues and "multiple heredoc" in issues[0]

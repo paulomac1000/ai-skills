@@ -680,6 +680,7 @@ def _command_path_tokens(command: str) -> tuple[str, ...]:
         paths.append(candidate.as_posix())
     return tuple(paths)
 
+
 def _strip_command_substitutions(line: str) -> tuple[str, list[str], bool]:
     """Replace $(...) spans on one logical line with SUBST$ placeholders.
 
@@ -712,11 +713,39 @@ def _strip_command_substitutions(line: str) -> tuple[str, list[str], bool]:
             depth = 1
             index += 2
             start = index
+            body_quote: str | None = None
+            body_escaped = False
             while index < len(line) and depth:
-                if line[index] == "(":
+                current = line[index]
+                if body_escaped:  # literal next character, even a parenthesis or quote
+                    body_escaped = False
+                    index += 1
+                    continue
+                if current == "\\" and body_quote != "'":
+                    body_escaped = True
+                    index += 1
+                    continue
+                if body_quote is not None:  # quoted parentheses are data, not nesting
+                    if current == body_quote:
+                        body_quote = None
+                    index += 1
+                    continue
+                if current in "'\"":
+                    body_quote = current
+                    index += 1
+                    continue
+                if current == "$" and line.startswith("$(", index):  # genuine nested substitution
                     depth += 1
-                elif line[index] == ")":
+                    index += 2
+                    continue
+                if current == "(":
+                    depth += 1
+                    index += 1
+                    continue
+                if current == ")":
                     depth -= 1
+                    index += 1
+                    continue
                 index += 1
             if depth:  # span never closed on this logical line
                 return "".join(result) + "SUBST$", extracted, True

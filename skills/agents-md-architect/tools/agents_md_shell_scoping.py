@@ -17,10 +17,12 @@ _FUNCTION_DEF = re.compile(r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z
 _HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 _KEYWORDS = {"then", "else", "elif", "fi", "done", "do", "{", "!", "if"}
 _TRANSITION_COMMANDS = {"cd", "pushd", "popd"}
+_MAX_SUBSTITUTION_DEPTH = 4
+_MAX_SUBSTITUTION_CHARS = 2048
 
 
 def shell_invocations_with_scope(
-    run: str, base_directory: str, scope_label: str
+    run: str, base_directory: str, scope_label: str, *, _depth: int = 0
 ) -> tuple[list[tuple[str, str]], list[str]]:
     """Ordered invocations with explicit frames, block tracking and fail-closed EOF."""
     scoped: list[tuple[str, str]] = []
@@ -52,19 +54,22 @@ def shell_invocations_with_scope(
                 scopes.append(scopes[-1])
                 pushd_stacks.append(list(pushd_stacks[-1]))
             effective = scopes[-1]
-            for _ in range(segment.count("SUBST$")):  # substitution bodies execute at marker scope
+            for _ in range(segment.count("SUBST$")):  # substitution bodies are isolated scopes
                 if not pending:
                     break
                 substitution = pending.pop(0)
                 if not substitution.strip():
                     continue
-                normalized = _normalize_invocation(substitution)
-                if normalized is None:
+                if _depth + 1 > _MAX_SUBSTITUTION_DEPTH or len(substitution) > _MAX_SUBSTITUTION_CHARS:
                     return fail(
-                        f"command substitution invocation is not statically attributable "
+                        f"command substitution exceeds the bounded static analysis envelope "
                         f"at {scope_label}: {substitution!r}"
                     )
-                scoped.append((normalized, effective))
+                nested_scoped, nested_issues = shell_invocations_with_scope(
+                    substitution, effective, f"{scope_label} substitution", _depth=_depth + 1
+                )
+                scoped.extend(nested_scoped)
+                issues.extend(nested_issues)
             try:
                 tokens = shlex.split(inner) if inner.strip() else []
             except ValueError:
@@ -120,7 +125,7 @@ def shell_invocations_with_scope(
         return not suffix or process(suffix, if_depth > 0, substitutions)
 
     def heredoc_strip(segments: list[tuple[str | None, str]]) -> tuple[list[tuple[str | None, str]], int] | None:
-        """Strip the first heredoc operator, record its delimiter, keep prefix segments."""
+        """Strip the first heredoc operator, record its delimiter, keep every segment in order."""
         nonlocal heredoc_end
         for position, (_operator, segment) in enumerate(segments):
             opener = _HEREDOC.search(segment)
@@ -129,7 +134,7 @@ def shell_invocations_with_scope(
             heredoc_end = opener.group(2)
             stripped = [
                 (operator, _HEREDOC.sub("", segment, count=1) if index == position else segment)
-                for index, (operator, segment) in enumerate(segments[: position + 1])
+                for index, (operator, segment) in enumerate(segments)
             ]
             return stripped, position
         return None
@@ -157,6 +162,9 @@ def shell_invocations_with_scope(
         line = folded.strip()
         if not line:
             continue
+        if len(_HEREDOC.findall(line)) > 1:  # multiple heredoc redirections are outside the bounded grammar
+            fail(f"multiple heredoc redirections are unsupported at {scope_label}: {line!r}")
+            return scoped, issues
         if function_depth is not None:  # inside a definition body
             opener = _HEREDOC.search(line)
             if opener is not None:  # a body heredoc is data, never depth-relevant tokens
@@ -192,8 +200,20 @@ def shell_invocations_with_scope(
                 if suffix and if_depth == 0 and not process(suffix, False, substitutions):
                     return scoped, issues
                 continue
-            if line.startswith("if ") or line == "if":
-                if_depth += 1
+            if line.startswith("if ") or line == "if":  # nested opener: balance it on this line (hTzz)
+                nested_segments = _split_ordered(line)
+                nested_stripped = heredoc_strip(nested_segments)
+                if nested_stripped is not None:
+                    nested_segments, _ = nested_stripped
+                nested_one_line = (
+                    nested_segments[-1][1] == "fi"
+                    or nested_segments[-1][1].startswith("fi;")
+                    or nested_segments[-1][1].startswith("fi ")
+                )
+                if not run_engine(nested_segments, True, substitutions):
+                    return scoped, issues
+                if not nested_one_line:
+                    if_depth += 1
                 continue
             opener = _HEREDOC.search(line)
             if opener is not None:  # a body heredoc isolates its data from scope parsing
