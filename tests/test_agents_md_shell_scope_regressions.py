@@ -367,3 +367,63 @@ def test_inline_conditional_transition_fail_closed_is_preserved() -> None:
 def test_function_invocation_still_fails_closed() -> None:
     _scoped, issues = _scoped_issues("helper() { echo yes; }\nhelper\npython check.py\n")
     assert issues and "helper" in issues[0]
+
+
+# ---------- 5840414479: F1/F2/F3 ----------
+
+
+def test_mid_line_conditional_transition_fails_closed() -> None:
+    scoped, issues = _scoped_issues("echo begin; if false; then cd tools; fi\npython check.py\n")
+    assert not any(scope == "tools" for _command, scope in scoped)
+    assert issues and "directory transition" in issues[0]
+
+
+def test_mid_line_conditional_invocations_are_attributed() -> None:
+    scoped = _scoped("echo begin; if true; then python check.py; fi\n")
+    assert ("python check.py", ".") in scoped
+
+
+def test_structural_close_ignores_quoted_brace_suffix() -> None:
+    scoped = _scoped("helper() { :; }; python check.py --format '{}'\n")
+    assert any("--format '{}'" in command for command, _scope in scoped)
+
+
+def test_structural_close_ignores_quoted_x_brace_suffix() -> None:
+    scoped = _scoped("helper() { :; }; python check.py --format '{x}'\n")
+    assert any("--format '{x}'" in command for command, _scope in scoped)
+
+
+def test_inner_fi_restores_parent_conditional_context() -> None:
+    scoped, issues = _scoped_issues("if false; then\n    if true; then :; fi; cd tools\nfi\npython check.py\n")
+    assert not any(scope == "tools" for _command, scope in scoped)
+    assert issues and "directory transition" in issues[0]
+
+
+def test_closed_top_level_conditional_still_applies_cd() -> None:
+    scoped = _scoped("if true; then :; fi\ncd tools\npython check.py\n")
+    assert ("python check.py", "tools") in scoped
+
+
+# ---------- metamorphic: ownership must be invariant to harmless syntax ----------
+
+
+def _checkpy_ownership(run: str) -> list[tuple[str, str]]:
+    return [entry for entry in _scoped(run) if "check.py" in entry[0]]
+
+
+def test_metamorphic_harmless_prefix_keeps_ownership() -> None:
+    assert _checkpy_ownership("if true; then python check.py; fi\n") == _checkpy_ownership(
+        "echo begin; if true; then python check.py; fi\n"
+    )
+
+
+def test_metamorphic_quoted_argument_keeps_ownership() -> None:
+    plain = _scoped("python -m check\n")
+    quoted = _scoped('python -m "check"\n')
+    assert plain == quoted
+
+
+def test_metamorphic_extra_enclosing_conditional_keeps_ownership() -> None:
+    single = _checkpy_ownership("if true; then python check.py; fi\n")
+    nested = _checkpy_ownership("if true; then if true; then python check.py; fi; fi\n")
+    assert single == nested

@@ -16,6 +16,7 @@ from agents_md_shell_grammar import (
     _split_ordered,
     _static_cd_target,
     _structural_brace_delta,
+    _structural_close_index,
 )
 
 _FUNCTION_DEF = re.compile(r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{?")
@@ -34,6 +35,7 @@ def shell_invocations_with_scope(
     issues: list[str] = []
     scopes: list[str] = [base_directory]
     pushd_stacks: list[list[str]] = [[]]
+    conditional_frames: list[bool] = []
     last_was_transition = False
     heredoc_end: str | None = None
     defined_functions: set[str] = set()
@@ -51,10 +53,7 @@ def shell_invocations_with_scope(
         return False
 
     def run_engine(
-        segments: list[tuple[str | None, str]],
-        conditional: bool,
-        substitutions: list[str],
-        inline_state: dict[str, int] | None = None,
+        segments: list[tuple[str | None, str]], substitutions: list[str], inline_state: dict[str, int]
     ) -> bool:
         """The single ordered scope engine shared by every segment source."""
         nonlocal last_was_transition
@@ -65,6 +64,7 @@ def shell_invocations_with_scope(
                 scopes.append(scopes[-1])
                 pushd_stacks.append(list(pushd_stacks[-1]))
             effective = scopes[-1]
+            conditional_context = conditional_frames[-1] if conditional_frames else False
             for _ in range(segment.count("SUBST$")):  # substitution bodies are isolated scopes
                 if not pending:
                     break
@@ -89,14 +89,15 @@ def shell_invocations_with_scope(
             while tokens and tokens[0] in _KEYWORDS:
                 head = tokens[0]
                 tokens = tokens[1:]
-                if inline_state is not None:  # ordered open/close tracking (review ok_o)
-                    if head == "if":
-                        inline_state["depth"] += 1
-                    elif head == "fi":
-                        inline_state["depth"] -= 1
-                        if inline_state["depth"] <= 0:
-                            inline_state["depth"] = 0
-                            conditional = False  # closed: the remaining suffix is unconditional
+                if head == "if":  # ordered frames: opening pushes the conditional context (F1/F3)
+                    inline_state["depth"] += 1
+                    conditional_frames.append(True)
+                elif head == "fi":  # closing restores the parent frame context (F3)
+                    inline_state["depth"] -= 1
+                    if conditional_frames:
+                        conditional_frames.pop()
+                    if inline_state["depth"] <= 0:
+                        inline_state["depth"] = 0
                 command = shlex.join(tokens) if tokens else ""
             if not tokens:
                 pop_frames(min(closes, len(scopes) - 1))
@@ -105,7 +106,7 @@ def shell_invocations_with_scope(
                 return fail(
                     f"conditional reachability after a directory transition is unresolved at {scope_label}: {segment!r}"
                 )
-            if tokens[0] in _TRANSITION_COMMANDS and (operator not in (None, ";") or conditional):
+            if tokens[0] in _TRANSITION_COMMANDS and (operator not in (None, ";") or conditional_context):
                 return fail(
                     f"conditional control flow over a directory transition is unsupported at {scope_label}: {segment!r}"
                 )
@@ -134,15 +135,25 @@ def shell_invocations_with_scope(
             pop_frames(min(closes, len(scopes) - 1))
         return True
 
-    def process(line: str, conditional: bool, substitutions: list[str]) -> bool:
-        return run_engine(_split_ordered(line), conditional, substitutions)
+    def run_segments(segments: list[tuple[str | None, str]], substitutions: list[str]) -> bool:
+        """Engine pass that folds residual conditional opens into the block depth."""
+        nonlocal if_depth
+        inline_state = {"depth": 0}
+        if not run_engine(segments, substitutions, inline_state):
+            return False
+        if_depth += inline_state["depth"]
+        return True
+
+    def run_line(line: str, substitutions: list[str]) -> bool:
+        return run_segments(_split_ordered(line), substitutions)
 
     def definition_suffix(line: str, substitutions: list[str]) -> bool:
         """Route a closed definition's same-line suffix through the ordered engine."""
-        if "}" not in line:
+        close = _structural_close_index(line)
+        if close is None:
             return True
-        suffix = line[line.rindex("}") + 1 :].strip()
-        return not suffix or process(suffix, if_depth > 0, substitutions)
+        suffix = line[close:].strip()
+        return not suffix or run_line(suffix, substitutions)
 
     def heredoc_strip(segments: list[tuple[str | None, str]]) -> tuple[list[tuple[str | None, str]], int] | None:
         """Strip the first heredoc operator, record its delimiter, keep every segment in order."""
@@ -197,7 +208,7 @@ def shell_invocations_with_scope(
             if opener is not None:  # a body heredoc is data, never depth-relevant tokens
                 heredoc_end = opener.group(2)
                 prefix = _HEREDOC.sub("", line, count=1).strip()
-                if prefix and not process(prefix, True, substitutions):
+                if prefix and not run_line(prefix, substitutions):
                     return scoped, issues
                 continue
             function_depth += _structural_brace_delta(line)  # quoted braces are data (5839793113)
@@ -228,50 +239,30 @@ def shell_invocations_with_scope(
         if if_depth > 0:
             if line == "fi" or line.startswith("fi;") or line.startswith("fi "):
                 if_depth -= 1
+                if conditional_frames:  # the closing fi restores its parent conditional frame (F3)
+                    conditional_frames.pop()
                 suffix = line[2:].strip()
                 if suffix.startswith(";"):
                     suffix = suffix[1:].strip()
-                if suffix and if_depth == 0 and not process(suffix, False, substitutions):
+                if suffix and if_depth == 0 and not run_line(suffix, substitutions):
                     return scoped, issues
-                continue
-            if line.startswith("if ") or line == "if":  # nested opener: balance it on this line (hTzz)
-                nested_segments = _split_ordered(line)
-                nested_stripped = heredoc_strip(nested_segments)
-                if nested_stripped is not None:
-                    nested_segments, _ = nested_stripped
-                inline_state = {"depth": 0}
-                if not run_engine(nested_segments, True, substitutions, inline_state):
-                    return scoped, issues
-                if inline_state["depth"] > 0:
-                    if_depth += 1
                 continue
             opener = _HEREDOC.search(line)
             if opener is not None:  # a body heredoc isolates its data from scope parsing
                 heredoc_end = opener.group(2)
                 prefix = _HEREDOC.sub("", line, count=1).strip()
-                if prefix and not process(prefix, True, substitutions):
+                if prefix and not run_line(prefix, substitutions):
                     return scoped, issues
                 continue
-            if not process(line, True, substitutions):  # body invocations kept; transitions fail closed
+            if not run_line(line, substitutions):  # body invocations kept; conditional context from frames
                 return scoped, issues
             continue
-        segments = _split_ordered(line)
-        if line.startswith("if ") or line == "if":  # opener: ordered open/close tracking (ok_o)
-            stripped = heredoc_strip(segments)
-            if stripped is not None:
-                segments, _ = stripped
-            inline_state = {"depth": 0}
-            if not run_engine(segments, True, substitutions, inline_state):
-                return scoped, issues
-            if inline_state["depth"] > 0:
-                if_depth += 1
-            continue
-        stripped = heredoc_strip(segments)  # heredoc recognition precedes ordinary parsing
-        if stripped is not None:
-            if not run_engine(stripped[0], False, substitutions):
+        stripped = heredoc_strip(segments := _split_ordered(line))
+        if stripped is not None:  # heredoc recognition precedes ordinary parsing
+            if not run_segments(stripped[0], substitutions):
                 return scoped, issues
             continue
-        if not run_engine(segments, False, substitutions):
+        if not run_segments(segments, substitutions):
             return scoped, issues
 
     if heredoc_end is not None:
@@ -281,6 +272,8 @@ def shell_invocations_with_scope(
     if pending_function_brace:
         issues.append(f"function definition is missing its opening brace at {scope_label}")
     if if_depth > 0:
+        issues.append(f"conditional block is unterminated at {scope_label}")
+    if conditional_frames:
         issues.append(f"conditional block is unterminated at {scope_label}")
     if function_depth is not None:
         issues.append(f"function definition is unterminated at {scope_label}")

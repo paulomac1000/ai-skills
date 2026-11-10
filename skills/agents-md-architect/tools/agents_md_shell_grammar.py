@@ -129,3 +129,36 @@ def _structural_brace_delta(line: str) -> int:
         elif character == "}":
             delta -= 1
     return delta
+
+
+def _structural_close_index(line: str) -> int | None:
+    """Index just past the brace that closes the line's structural brace depth.
+
+    Lexically quote/escape-aware (review F2 / 5840414479): a closing brace
+    inside quotes — e.g. the '{}' in `python check.py --format '{}'` — is data
+    and never terminates a function definition's suffix scan.
+    """
+    quote: str | None = None
+    escaped = False
+    depth = 0
+    for index, character in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            continue
+        if character in "'\"":
+            quote = character
+            continue
+        if character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth <= 0:
+                return index + 1
+    return None
