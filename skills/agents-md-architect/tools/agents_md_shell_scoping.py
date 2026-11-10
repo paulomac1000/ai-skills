@@ -12,6 +12,7 @@ from agents_md_shell_evidence_impl import (
     _strip_shell_comment,
 )
 from agents_md_shell_grammar import (
+    _has_structural_brace_group,
     _segment_scope_kind,
     _split_ordered,
     _static_cd_target,
@@ -55,7 +56,6 @@ def shell_invocations_with_scope(
     def run_engine(segments: list[tuple[str | None, str]], substitutions: list[str]) -> bool:
         """The single ordered scope engine shared by every segment source."""
         nonlocal last_was_transition, function_depth, pending_function_brace
-        pending = list(substitutions)
         for operator, segment in segments:
             definition_head = _FUNCTION_DEF.match(segment)
             if definition_head is not None:  # 2BaK: raw-segment match — parens stay intact
@@ -80,10 +80,13 @@ def shell_invocations_with_scope(
                 pushd_stacks.append(list(pushd_stacks[-1]))
             effective = scopes[-1]
             conditional_context = bool(conditional_frames)
-            for _ in range(segment.count("SUBST$")):  # substitution bodies are isolated scopes
-                if not pending:
-                    break
-                substitution = pending.pop(0)
+            for marker_match in re.finditer(
+                r"SUBST\$(\d+)", segment
+            ):  # indexed identity: marker n binds to body n (5om4)
+                marker_index = int(marker_match.group(1))
+                if marker_index >= len(substitutions):
+                    continue
+                substitution = substitutions[marker_index]
                 if not substitution.strip():
                     continue
                 if _depth + 1 > _MAX_SUBSTITUTION_DEPTH or len(substitution) > _MAX_SUBSTITUTION_CHARS:
@@ -137,7 +140,7 @@ def shell_invocations_with_scope(
                 if len(tokens) > 1:
                     tokens = tokens[1:]
                     command = shlex.join(tokens) if tokens else ""
-            if any(token in {";", "}"} for token in tokens) or ("{" in inner and ";" in inner):
+            if any(token in {";", "}"} for token in tokens) or _has_structural_brace_group(inner):
                 # 2BaK: protected brace group — ordered token groups. Whitespace
                 # splitting GLUES the operand to a trailing separator
                 # (`cd tools;` → the single token 'tools;'), so the group is
@@ -164,6 +167,10 @@ def shell_invocations_with_scope(
                     group_tokens.append(token)
                 if group_tokens:
                     group_segments.append((group_operator, shlex.join(group_tokens)))
+                if (
+                    len(group_segments) == 1 and group_segments[0][1] == inner.strip()
+                ):  # 5omx: no measurable parsing progress — unsupported quoted structure
+                    return fail(f"brace group is not statically attributable at {scope_label}: {segment!r}")
                 if group_segments and not run_engine(group_segments, substitutions):
                     return False
                 pop_frames(min(closes, len(scopes) - 1))
@@ -275,6 +282,9 @@ def shell_invocations_with_scope(
             function_depth += _structural_brace_delta(line)  # quoted braces are data (5839793113)
             if function_depth <= 0:
                 function_depth = None
+                # 5om4: the closed body's substitution markers are dropped with the
+                # inert body (never attributed); the suffix consumes its own markers
+                # by ABSOLUTE index, so no positional accounting is needed.
                 if not definition_suffix(line, substitutions):
                     return scoped, issues
             continue

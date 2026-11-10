@@ -198,3 +198,35 @@ def _structural_close_index(line: str) -> int | None:
             if depth <= 0:
                 return index + 1
     return None
+
+
+def _has_structural_brace_group(line: str) -> bool:
+    """True when an unquoted '{' and an unquoted ';' both occur (brace-group candidate).
+
+    Quote-aware (review 5omx / 5849730102): braces and semicolons inside quoted
+    arguments — e.g. the JSON payload in `--json '{"a":"x;y"}'` — are argument
+    data, never shell structure, and must not trigger brace-group processing.
+    """
+    quote: str | None = None
+    escaped = False
+    saw_open = False
+    saw_separator = False
+    for character in line:
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            continue
+        if character in "'\"":
+            quote = character
+            continue
+        if character == "{":
+            saw_open = True
+        elif character == ";":
+            saw_separator = True
+    return saw_open and saw_separator

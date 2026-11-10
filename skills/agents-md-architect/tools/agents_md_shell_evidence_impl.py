@@ -750,7 +750,9 @@ def _strip_command_substitutions(line: str) -> tuple[str, list[str], bool]:
             if depth:  # span never closed on this logical line
                 return "".join(result) + "SUBST$", extracted, True
             extracted.append(line[start : index - 1])
-            result.append("SUBST$")
+            # Indexed marker: SUBST$n binds occurrence n to extracted[n] so marker
+            # identity survives positional skipping of inert regions (review 5om4).
+            result.append(f"SUBST${len(extracted) - 1}")
             continue
         if quote is not None:
             if character == quote:
