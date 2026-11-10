@@ -568,3 +568,61 @@ def test_seeded_definition_invocation_still_fails_closed() -> None:
     fix must not turn uncalled definitions into callable no-ops)."""
     scoped, issues = _scoped_issues("helper() { :; cd tools; }\nhelper\npython check.py\n")
     assert issues and "helper" in issues[0]
+
+
+# ---------- round 15 (Codex 5omx / 5om4, review 5849719155) ----------
+
+
+def test_quoted_json_argument_never_recurses_and_stays_inert() -> None:
+    """Codex 5omx: a quoted '{"a":"x;y"}' argument is DATA — no structural
+    group, no recursion, the invocation attributed at the ambient scope."""
+    scoped, issues = _scoped_issues('python real.py --json \'{"a":"x;y"}\'\n')
+    assert issues == [], f"no fail-closed issue for valid quoted data: {issues}"
+    assert any(command.startswith("python real.py") for command, _scope in scoped)
+
+
+def test_escaped_brace_argument_is_inert_data() -> None:
+    scoped, issues = _scoped_issues('python real.py --json \'{\\"a\\":\\"x\\"}\'\n')
+    assert issues == []
+    assert any(command.startswith("python real.py") for command, _scope in scoped)
+
+
+def test_substitution_marker_identity_across_inert_definition() -> None:
+    """Codex 5om4: `f() { echo "$(python ghost.py)"; }; echo "$(python real.py)"`
+    executes ONLY real.py — the skipped body's substitution can never be
+    consumed by the suffix's marker (indexed markers + boundary slicing)."""
+    scoped = _scoped('f() { echo "$(python ghost.py)"; }; echo "$(python real.py)"\n')
+    commands = " | ".join(command for command, _scope in scoped)
+    assert "real.py" in commands, "the real invocation is analyzed"
+    assert "ghost.py" not in commands, "the skipped body's substitution is never analyzed"
+
+
+def test_full_classifier_counts_real_not_ghost() -> None:
+    """Integration through classify_gate_sources (the public audit surface),
+    not only the private scoping helper."""
+    import tempfile
+
+    from agents_md_gate_sources import classify_gate_sources
+    from discover_repository import discover
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "real.py").write_text("def main() -> None:\n    pass\n", encoding="utf-8")
+        ghost_dir = root / "tools"
+        ghost_dir.mkdir()
+        (ghost_dir / "ghost.py").write_text("def main() -> None:\n    pass\n", encoding="utf-8")
+        workflow = root / ".github" / "workflows" / "ci.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text(
+            "jobs:\n"
+            "  verify:\n"
+            "    runs-on: ubuntu-24.04\n"
+            "    steps:\n"
+            '      - run: f() { echo "$(python tools/ghost.py)"; }; echo "$(python real.py)"\n',
+            encoding="utf-8",
+        )
+        inventory = classify_gate_sources(root, discover(root), limit=64)
+        counted = {source.path for source in inventory.sources if source.counted}
+        assert "real.py" in counted, "the actually executed script is counted"
+        assert "tools/ghost.py" not in counted, "the uncalled body's script is never counted"
+        assert inventory.issues == ()
