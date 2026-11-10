@@ -597,32 +597,32 @@ def test_substitution_marker_identity_across_inert_definition() -> None:
     assert "ghost.py" not in commands, "the skipped body's substitution is never analyzed"
 
 
-def test_full_classifier_counts_real_not_ghost() -> None:
+def test_full_classifier_counts_real_not_ghost(tmp_path: Path) -> None:
     """Integration through classify_gate_sources (the public audit surface),
-    not only the private scoping helper."""
-    import tempfile
-
+    not only the private scoping helper. Uses pytest's tmp_path (an already
+    resolved path) — a raw tempfile path carries symlink components on
+    macOS (/var -> /private/var) that the repository's fail-closed root
+    discovery refuses by design."""
     from agents_md_gate_sources import classify_gate_sources
     from discover_repository import discover
 
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        (root / "real.py").write_text("def main() -> None:\n    pass\n", encoding="utf-8")
-        ghost_dir = root / "tools"
-        ghost_dir.mkdir()
-        (ghost_dir / "ghost.py").write_text("def main() -> None:\n    pass\n", encoding="utf-8")
-        workflow = root / ".github" / "workflows" / "ci.yml"
-        workflow.parent.mkdir(parents=True)
-        workflow.write_text(
-            "jobs:\n"
-            "  verify:\n"
-            "    runs-on: ubuntu-24.04\n"
-            "    steps:\n"
-            '      - run: f() { echo "$(python tools/ghost.py)"; }; echo "$(python real.py)"\n',
-            encoding="utf-8",
-        )
-        inventory = classify_gate_sources(root, discover(root), limit=64)
-        counted = {source.path for source in inventory.sources if source.counted}
-        assert "real.py" in counted, "the actually executed script is counted"
-        assert "tools/ghost.py" not in counted, "the uncalled body's script is never counted"
-        assert inventory.issues == ()
+    root = tmp_path
+    (root / "real.py").write_text("def main() -> None:\n    pass\n", encoding="utf-8")
+    ghost_dir = root / "tools"
+    ghost_dir.mkdir()
+    (ghost_dir / "ghost.py").write_text("def main() -> None:\n    pass\n", encoding="utf-8")
+    workflow = root / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        '      - run: f() { echo "$(python tools/ghost.py)"; }; echo "$(python real.py)"\n',
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(root, discover(root), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert "real.py" in counted, "the actually executed script is counted"
+    assert "tools/ghost.py" not in counted, "the uncalled body's script is never counted"
+    assert inventory.issues == ()
