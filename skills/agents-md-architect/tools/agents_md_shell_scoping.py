@@ -110,7 +110,11 @@ def shell_invocations_with_scope(
                 # and the suffix is attributed at the correct scope.
                 wrapped = segment[1:-1].strip()
                 if wrapped:
-                    if not run_segments(_split_ordered(wrapped), substitutions):
+                    # IvSz: the group's incoming operator crosses the boundary —
+                    # a transition after &&/|| has unresolved reachability and
+                    # must fail closed instead of applying from the wrong scope.
+                    incoming = f"{operator} {wrapped}" if operator in {"&&", "||"} else wrapped
+                    if not run_segments(_split_ordered(incoming), substitutions):
                         return False
                 continue
             definition_head = _FUNCTION_DEF.match(segment)
@@ -232,7 +236,7 @@ def shell_invocations_with_scope(
                     f"shell function {transition_tokens[0]!r} overrides the directory builtin; "
                     f"its scope effects are not statically resolvable at {scope_label}"
                 )
-            if any(token in {";", "}"} for token in transition_tokens) or _has_structural_brace_group(inner):
+            if _has_structural_brace_group(inner):  # IvS5: QUOTE-AWARE trigger — quoted ';' is argument data
                 # 2BaK: protected brace group — ordered token groups. The
                 # quote-aware structural scanner keeps quoted argument data
                 # whole (9nj_: a quoted ';' is an echo argument, never a
