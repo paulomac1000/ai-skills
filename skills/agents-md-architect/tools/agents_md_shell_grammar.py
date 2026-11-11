@@ -230,3 +230,45 @@ def _has_structural_brace_group(line: str) -> bool:
         elif character == ";":
             saw_separator = True
     return saw_open and saw_separator
+
+
+def _split_structural_tokens(text: str) -> list[str]:
+    """Split into brace/semicolon structural tokens and words.
+
+    Quote-aware (review 9nj_ / 5851713597): a QUOTED semicolon — e.g. the
+    argument in `echo ';' cd tools` — stays a WHOLE word token with its
+    quotes preserved, never a structural separator. Unquoted braces and
+    semicolons split as single-character structural tokens.
+    """
+    tokens: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    escaped = False
+    for character in text:
+        if escaped:
+            current.append(character)
+            escaped = False
+            continue
+        if character == "\\" and quote != "'":
+            current.append(character)
+            escaped = True
+            continue
+        if quote is not None:
+            current.append(character)
+            if character == quote:
+                quote = None
+            continue
+        if character in "'\"":
+            quote = character
+            current.append(character)
+            continue
+        if character in "{};":
+            if current:
+                tokens.append("".join(current))
+                current = []
+            tokens.append(character)
+            continue
+        current.append(character)
+    if current:
+        tokens.append("".join(current))
+    return tokens

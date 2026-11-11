@@ -15,6 +15,7 @@ from agents_md_shell_grammar import (
     _has_structural_brace_group,
     _segment_scope_kind,
     _split_ordered,
+    _split_structural_tokens,
     _static_cd_target,
     _structural_brace_delta,
     _structural_close_index,
@@ -98,6 +99,20 @@ def shell_invocations_with_scope(
         nonlocal last_was_transition, function_depth, pending_function_brace, heredoc_end
         nonlocal heredoc_dashed  # PRRT_kwDOSYvkl86172Zp (round 17)
         for operator, segment in segments:
+            if (
+                segment.startswith("{")
+                and _structural_close_index(segment) == len(segment)
+                and _has_structural_brace_group(segment)
+            ):  # 9nj5/9nj_: an outer brace group wrapping the whole segment —
+                # strip the group braces and re-dispatch the inner content through
+                # the SAME ordered engine: brace-aware splitting keeps definitions
+                # whole (bodies inert), quoted arguments never split as separators,
+                # and the suffix is attributed at the correct scope.
+                wrapped = segment[1:-1].strip()
+                if wrapped:
+                    if not run_segments(_split_ordered(wrapped), substitutions):
+                        return False
+                continue
             definition_head = _FUNCTION_DEF.match(segment)
             if definition_head is not None:  # 2BaK: raw-segment match — parens stay intact
                 defined_functions.add(definition_head.group(1) or definition_head.group(2))
@@ -218,17 +233,11 @@ def shell_invocations_with_scope(
                     f"its scope effects are not statically resolvable at {scope_label}"
                 )
             if any(token in {";", "}"} for token in transition_tokens) or _has_structural_brace_group(inner):
-                # 2BaK: protected brace group — ordered token groups. Whitespace
-                # splitting GLUES the operand to a trailing separator
-                # (`cd tools;` → the single token 'tools;'), so the group is
-                # re-tokenized with shlex punctuation chars: the separators and
-                # structural braces split, words stay whole.
-                try:
-                    reader = shlex.shlex(inner, posix=True, punctuation_chars=";{}")
-                    reader.whitespace_split = True
-                    tokens = list(reader)
-                except ValueError:
-                    return fail(f"workflow segment is not statically parseable at {scope_label}: {segment!r}")
+                # 2BaK: protected brace group — ordered token groups. The
+                # quote-aware structural scanner keeps quoted argument data
+                # whole (9nj_: a quoted ';' is an echo argument, never a
+                # separator) and splits structural braces/semicolons.
+                tokens = _split_structural_tokens(inner)
                 group_segments: list[tuple[str | None, str]] = []
                 group_tokens: list[str] = []
                 group_operator = operator
