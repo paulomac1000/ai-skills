@@ -403,8 +403,11 @@ def _logical_shell_lines(text: str) -> list[str]:
     logical: list[str] = []
     pending = ""
     for raw_line in text.splitlines():
-        candidate = raw_line.rstrip()
-        combined = f"{pending}{candidate.lstrip()}" if pending else candidate
+        # PRRT_kwDOSYvkl86189AG-adjacent / F3 (round 17): the trailing
+        # whitespace is PRESERVED — a heredoc terminator with trailing
+        # spaces/tabs is body data per bash rules, so normalization before
+        # the terminator recognition would misattribute the body.
+        combined = f"{pending}{raw_line.lstrip()}" if pending else raw_line
         if _shell_line_continues(combined):
             pending = f"{combined.rstrip()[:-1]} "
             continue

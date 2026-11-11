@@ -716,3 +716,82 @@ def test_substitution_analyzed_once_at_effective_scope() -> None:
     scoped = _scoped('{ cd tools; echo "$(python check.py)"; }\n')
     entries = [entry for entry in scoped if "check.py" in entry[0]]
     assert entries == [("python check.py", "tools")], entries
+
+
+# ---------- round 17 matrix (review 5851348466: 89AB / 89AG / F3-rstrip / F4-nonlocal) ----------
+
+
+def test_quoted_herdoc_delimiter_with_dashes_is_data() -> None:
+    """R17-F1 (89AB): <<"END-OF-DATA"> — a quoted delimiter containing dashes
+    is recognized; the body stays data; the follow-up runs at root."""
+    scoped, issues = _scoped_issues('cat <<"END-OF-DATA"\ncd tools\nEND-OF-DATA\npython check.py\n')
+    assert issues == [], issues
+    assert ("python check.py", ".") in scoped
+    assert not any(scope == "tools" for _command, scope in scoped)
+    assert not any(command == "cd tools" for command, _scope in scoped)
+
+
+def test_unquoted_herdoc_delimiter_with_dashes_is_data() -> None:
+    scoped, issues = _scoped_issues("cat <<END-OF-DATA\ncd tools\nEND-OF-DATA\npython check.py\n")
+    assert issues == [], issues
+    assert ("python check.py", ".") in scoped
+    assert not any(scope == "tools" for _command, scope in scoped)
+
+
+def test_unsupported_herdoc_form_fails_closed() -> None:
+    """An expansion-bearing delimiter is outside the bounded grammar: typed
+    fail-closed, never a silent treatment as executable code."""
+    scoped, issues = _scoped_issues("cat <<$DELIM\ncd tools\nx\n")
+    assert issues, issues
+    assert ("cd tools", ".") not in scoped
+
+
+def test_nested_brace_groups_keep_directory_scope() -> None:
+    """R17-F2 (89AG): nested brace groups with glued `};` tokens — the
+    directory scope follows the REAL ordered transitions."""
+    scoped = _scoped("{ cd tools; { echo ready; }; cd ..; python check.py; }\n")
+    assert ("python check.py", ".") in scoped, "check.py runs after `cd ..` — at root"
+    assert ("echo ready", "tools") in scoped, "echo ready executes inside the group at tools"
+    assert not any(command == "python check.py" and scope == "tools" for command, scope in scoped), (
+        "no misattributed check.py"
+    )
+
+
+def test_glued_close_separator_token_is_honored() -> None:
+    """The brace group shares the parent scope: the cd inside PERSISTS after
+    the closing brace (bash semantics) — the glued `};` token must not lose
+    the group's internal transitions."""
+    scoped = _scoped("{ cd tools; echo ready; }; python check.py\n")
+    assert ("python check.py", "tools") in scoped
+    assert ("echo ready", "tools") in scoped
+
+
+def test_herdoc_terminator_with_trailing_space_is_data() -> None:
+    """R17-F3: `EOF ` (a trailing space) does NOT terminate a <<EOF heredoc
+    in bash — the line stays body data, and nothing inside is executed."""
+    scoped, issues = _scoped_issues("cat <<EOF\nEOF \ncd tools\nEOF\npython check.py\n")
+    assert issues == [], issues
+    assert ("python check.py", ".") in scoped
+    assert not any(command == "cd tools" for command, _scope in scoped)
+
+
+def test_herdoc_terminator_with_trailing_tab_is_data() -> None:
+    scoped, issues = _scoped_issues("cat <<EOF\nEOF\t\ncd tools\nEOF\npython check.py\n")
+    assert issues == [], issues
+    assert ("python check.py", ".") in scoped
+    assert not any(command == "cd tools" for command, _scope in scoped)
+
+
+def test_dashed_herdoc_mid_stream_definition_tab_terminator() -> None:
+    """R17-F4: <<-EOF inside a MID-STREAM function definition — the dash
+    mode survives the engine boundary (nonlocal) and the TAB-prefixed
+    terminator is honored."""
+    scoped, issues = _scoped_issues("echo begin; helper() { cat <<-EOF\n\tcd tools\n\tEOF\n}; python check.py\n")
+    assert ("python check.py", ".") in scoped
+    assert not any(command == "cd tools" for command, _scope in scoped)
+
+
+def test_dashed_herdoc_nested_definition_tab_terminator() -> None:
+    scoped, issues = _scoped_issues("{ helper() { cat <<-EOF\n\t\tcd tools\n\t\tEOF\n}; }\npython check.py\n")
+    assert not any(command == "cd tools" for command, _scope in scoped)
+    assert ("python check.py", ".") in scoped

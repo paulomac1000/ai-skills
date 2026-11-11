@@ -21,7 +21,11 @@ from agents_md_shell_grammar import (
 )
 
 _FUNCTION_DEF = re.compile(r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{?")
-_HEREDOC = re.compile(r"(?<!<)<<(?!<)(-?)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+# PRRT_kwDOSYvkl86189AB (round 17): the quoted delimiter may contain dashes
+# and other word characters; the unquoted stays an identifier-shaped word.
+# Expansion ($), quotes and backslashes inside the delimiter are outside the
+# bounded grammar and fail closed at the unrecognized-opener check.
+_HEREDOC = re.compile(r"(?<!<)<<(?!<)(-?)\s*(['\"]?)((?(2)[^\s'\"$]+|[A-Za-z_][A-Za-z0-9_-]*))\2")
 
 
 def _heredoc_terminates(raw_line: str, delimiter: str, dashed: bool) -> bool:
@@ -92,6 +96,7 @@ def shell_invocations_with_scope(
     def run_engine(segments: list[tuple[str | None, str]], substitutions: list[str]) -> bool:
         """The single ordered scope engine shared by every segment source."""
         nonlocal last_was_transition, function_depth, pending_function_brace, heredoc_end
+        nonlocal heredoc_dashed  # PRRT_kwDOSYvkl86172Zp (round 17)
         for operator, segment in segments:
             definition_head = _FUNCTION_DEF.match(segment)
             if definition_head is not None:  # 2BaK: raw-segment match — parens stay intact
@@ -228,6 +233,21 @@ def shell_invocations_with_scope(
                 group_tokens: list[str] = []
                 group_operator = operator
                 for token in tokens:
+                    if token and all(ch in ";{}" for ch in token):
+                        # PRRT_kwDOSYvkl86189AG (round 17) — a punctuation RUN
+                        # token (`};`) explodes in order: each brace adjusts
+                        # nothing here (the flattened ordered model) and each
+                        # separator flushes the current word group, so the
+                        # glued close+separator is honored with the order
+                        # preserved.
+                        for ch in token:
+                            if ch in {"{", "}"}:
+                                continue
+                            if group_tokens:
+                                group_segments.append((group_operator, shlex.join(group_tokens)))
+                                group_tokens = []
+                            group_operator = ";"
+                        continue
                     if token in {"{", "}"}:
                         continue  # structural brace of the protected group, not command data
                     if token in {"&&", "||"}:
@@ -359,6 +379,14 @@ def shell_invocations_with_scope(
         line = folded.strip()
         if not line:
             continue
+        # the same lookbehind/lookahead guards as _HEREDOC: a here-string
+        # (<<<) is never mistaken for an unrecognized heredoc opener (round 17)
+        if heredoc_end is None and re.search(r"(?<!<)<<(?!<)", line) and _HEREDOC.search(line) is None:
+            # PRRT_kwDOSYvkl86189AB — an unrecognized heredoc opener form
+            # (e.g. an expansion-bearing delimiter) is outside the bounded
+            # grammar: typed fail-closed instead of executing its body.
+            fail(f"heredoc delimiter is not statically recognizable at {scope_label}: {line!r}")
+            return scoped, issues
         if len(_HEREDOC.findall(line)) > 1:  # multiple heredoc redirections are outside the bounded grammar
             fail(f"multiple heredoc redirections are unsupported at {scope_label}: {line!r}")
             return scoped, issues
