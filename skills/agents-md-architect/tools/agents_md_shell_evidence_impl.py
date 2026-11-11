@@ -143,6 +143,8 @@ def _yaml_node_is_executable(relative: str, path: tuple[str, ...]) -> bool:
     name = Path(relative).name.casefold()
     if relative.startswith(".github/workflows/"):
         return len(path) == 5 and path[0] == "jobs" and path[2:] == ("steps", "[]", "run")
+    if relative.startswith(".github/actions/"):
+        return len(path) == 4 and path[0] == "runs" and path[1:] == ("steps", "[]", "run")
     if relative == ".circleci/config.yml":
         return (len(path) == 5 and path[0] == "jobs" and path[2:] == ("steps", "[]", "run")) or (
             len(path) == 6 and path[0] == "jobs" and path[2:] == ("steps", "[]", "run", "command")
@@ -401,8 +403,11 @@ def _logical_shell_lines(text: str) -> list[str]:
     logical: list[str] = []
     pending = ""
     for raw_line in text.splitlines():
-        candidate = raw_line.rstrip()
-        combined = f"{pending}{candidate.lstrip()}" if pending else candidate
+        # PRRT_kwDOSYvkl86189AG-adjacent / F3 (round 17): the trailing
+        # whitespace is PRESERVED — a heredoc terminator with trailing
+        # spaces/tabs is body data per bash rules, so normalization before
+        # the terminator recognition would misattribute the body.
+        combined = f"{pending}{raw_line.lstrip()}" if pending else raw_line
         if _shell_line_continues(combined):
             pending = f"{combined.rstrip()[:-1]} "
             continue
@@ -677,3 +682,92 @@ def _command_path_tokens(command: str) -> tuple[str, ...]:
             continue
         paths.append(candidate.as_posix())
     return tuple(paths)
+
+
+def _strip_command_substitutions(line: str) -> tuple[str, list[str], bool]:
+    """Replace $(...) spans on one logical line with SUBST$ placeholders.
+
+    Returns the transformed line, every extracted substitution body in order,
+    and whether a substitution span never closed on this line (the caller must
+    fail closed on unterminated spans instead of guessing across lines).
+
+    Substituted output is outside the bounded static grammar: quotes inside a
+    substitution never toggle the outer shell quote state, and substitutions
+    nested inside double quotes are opaque to the outer quote state too.
+    """
+    result: list[str] = []
+    extracted: list[str] = []
+    index = 0
+    quote: str | None = None
+    escaped = False
+    while index < len(line):
+        character = line[index]
+        if escaped:
+            result.append(character)
+            escaped = False
+            index += 1
+            continue
+        if character == "\\" and quote != "'":
+            result.append(character)
+            escaped = True
+            index += 1
+            continue
+        if character == "$" and line.startswith("$(", index) and quote != "'":
+            depth = 1
+            index += 2
+            start = index
+            body_quote: str | None = None
+            body_escaped = False
+            while index < len(line) and depth:
+                current = line[index]
+                if body_escaped:  # literal next character, even a parenthesis or quote
+                    body_escaped = False
+                    index += 1
+                    continue
+                if current == "\\" and body_quote != "'":
+                    body_escaped = True
+                    index += 1
+                    continue
+                if body_quote is not None:  # quoted parentheses are data, not nesting
+                    if current == body_quote:
+                        body_quote = None
+                    index += 1
+                    continue
+                if current in "'\"":
+                    body_quote = current
+                    index += 1
+                    continue
+                if current == "$" and line.startswith("$(", index):  # genuine nested substitution
+                    depth += 1
+                    index += 2
+                    continue
+                if current == "(":
+                    depth += 1
+                    index += 1
+                    continue
+                if current == ")":
+                    depth -= 1
+                    index += 1
+                    continue
+                index += 1
+            if depth:  # span never closed on this logical line
+                return "".join(result) + "SUBST$", extracted, True
+            extracted.append(line[start : index - 1])
+            # Indexed marker: SUBST$n binds occurrence n to extracted[n] so marker
+            # identity survives positional skipping of inert regions (review 5om4).
+            result.append(f"SUBST${len(extracted) - 1}")
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            result.append(character)
+            index += 1
+            continue
+        if character in "'\"":
+            quote = character
+            result.append(character)
+            index += 1
+            continue
+        result.append(character)
+        index += 1
+    return "".join(result), extracted, False

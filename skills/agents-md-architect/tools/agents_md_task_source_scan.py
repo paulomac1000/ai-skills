@@ -2,22 +2,23 @@
 
 from __future__ import annotations
 
-import json
 import shlex
 from collections import deque
+from collections.abc import Collection
 from dataclasses import replace
 from pathlib import Path
 
 from agents_md_checkout_sources import (
     resolve_checkout_source_path,
 )
-from agents_md_completion_evidence import public_task_invocations
+from agents_md_completion_evidence import _package_script_commands, public_task_invocations
+from agents_md_composite_steps import composite_action_invocations
 from agents_md_python_evidence import _extract_python_invocations
 from agents_md_python_imports import module_name_for_path
 from agents_md_python_modules import module_invocation_references
 from agents_md_python_roots import invocation_roots_for_script
 from agents_md_shell_evidence import _extract_gate_invocations
-from agents_md_source_io import command_origin, public_task_surfaces, read_bounded
+from agents_md_source_io import command_origin, local_reference_resolves, public_task_surfaces, read_bounded
 from agents_md_source_types import (
     COMMAND_PATH_REFERENCE,
     MAX_RELATED_SOURCE_FILES,
@@ -37,11 +38,43 @@ def _commands_from_surface(
     relative: str,
     text: str,
     parent: CommandSource | None = None,
+    discovery_files: Collection[str] | None = None,
 ) -> WorkflowCommandScan:
     """Extract actual command surfaces using repository-owned static parsers."""
     suffix = Path(relative).suffix.casefold()
     if relative.startswith(".github/workflows/") and suffix in {".yml", ".yaml"}:
-        return github_workflow_command_scan(relative, text)
+        scan = github_workflow_command_scan(relative, text)
+        if discovery_files is not None:
+            unresolved = [
+                f"local composite action reference is unresolved at {relative}: {reference}"
+                for reference in scan.local_action_references
+                if not local_reference_resolves(reference, set(discovery_files))
+            ]
+            if unresolved:
+                scan = WorkflowCommandScan(scan.commands, (*scan.issues, *unresolved), scan.local_action_references)
+        return scan
+    if Path(relative).name in {"action.yml", "action.yaml"}:
+        scoped, scan_issues, nested_references = composite_action_invocations(text, relative)
+        unresolved = [
+            f"local composite action reference is unresolved at {relative}: {reference}"
+            for reference in nested_references
+            if discovery_files is None or not local_reference_resolves(reference, set(discovery_files))
+        ]
+        context = parent.checkout_context if parent is not None else None
+        return WorkflowCommandScan(
+            tuple(
+                CommandSource(
+                    relative,
+                    cwd,
+                    command,
+                    command_origin(relative, text, command),
+                    context,
+                    pythonpath if pythonpath is not None else (parent.pythonpath if parent is not None else None),
+                )
+                for command, cwd, pythonpath in scoped
+            ),
+            tuple(sorted({*scan_issues, *unresolved})),
+        )
     if suffix == ".py":
         commands = _extract_python_invocations(text)
     elif suffix in {".sh", ".ps1"} or Path(relative).name in WELL_KNOWN_TASK_RUNNERS:
@@ -68,20 +101,7 @@ def _commands_from_surface(
     )
 
 
-def _package_script_commands(text: str) -> set[str]:
-    """Return package.json script bodies as executable command sources."""
-    try:
-        document = json.loads(text)
-    except (json.JSONDecodeError, TypeError):
-        return set()
-    scripts = document.get("scripts") if isinstance(document, dict) else None
-    if not isinstance(scripts, dict):
-        return set()
-    return {value.strip() for value in scripts.values() if isinstance(value, str) and value.strip()}
-
-
 def _effective_pythonpath(source: CommandSource) -> str | None:
-    """Return the command-local PYTHONPATH assignment when one is present."""
     try:
         tokens = shlex.split(source.command, posix=True)
     except ValueError:
@@ -128,7 +148,7 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
         except (OSError, UnicodeError, ValueError) as error:
             issues.append(f"cannot inspect task source {relative!r}: {error}")
             continue
-        command_scan = _commands_from_surface(relative, text, parent)
+        command_scan = _commands_from_surface(relative, text, parent, discovery.files)
         issues.extend(command_scan.issues)
         for command_source in command_scan.commands:
             origin = command_source.origin

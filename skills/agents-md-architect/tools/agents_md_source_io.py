@@ -33,6 +33,7 @@ def public_task_surfaces(discovery: Discovery) -> set[str]:
     surfaces = set(discovery.ci_files)
     surfaces.update(path for path in discovery.task_runners if Path(path).name in WELL_KNOWN_TASK_RUNNERS)
     surfaces.update(path for path in discovery.manifests if Path(path).name in {"package.json", "pyproject.toml"})
+    surfaces.update(path for path in discovery.files if Path(path).name in {"action.yml", "action.yaml"})
     return surfaces
 
 
@@ -55,3 +56,13 @@ def is_executable_shebang_script(root: Path, relative: str) -> bool:
         return read_bounded(root, relative).startswith("#!")
     except (OSError, UnicodeError, ValueError):
         return False
+
+
+def local_reference_resolves(reference: str, discovery_files: set[str] | frozenset[str]) -> bool:
+    """Resolve a local `uses` reference as a reusable workflow or composite action."""
+    target = reference[2:].rstrip("/") if reference.startswith("./") else reference.rstrip("/")
+    if target:
+        if target in discovery_files and target.endswith((".yml", ".yaml")):
+            return True
+        return any(f"{target}/action.{kind}" in discovery_files for kind in ("yml", "yaml"))
+    return "action.yml" in discovery_files or "action.yaml" in discovery_files

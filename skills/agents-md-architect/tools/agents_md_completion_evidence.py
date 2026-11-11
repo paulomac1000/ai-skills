@@ -278,6 +278,17 @@ def _msbuild_invocations(text: str) -> set[str]:
     return commands
 
 
+def _package_script_commands(text: str) -> set[str]:
+    try:
+        document = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return set()
+    scripts = document.get("scripts") if isinstance(document, dict) else None
+    if not isinstance(scripts, dict):
+        return set()
+    return {value.strip() for value in scripts.values() if isinstance(value, str) and value.strip()}
+
+
 def public_task_invocations(relative: str, text: str) -> set[str]:
     """Return stable public commands exposed by a repository task-runner definition."""
     name = Path(relative).name

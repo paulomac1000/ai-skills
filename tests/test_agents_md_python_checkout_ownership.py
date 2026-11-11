@@ -134,10 +134,11 @@ def test_pythonpath_splits_multiple_windows_absolute_roots(tmp_path: Path) -> No
         source,
     )
 
+    # Runtime resolution order: the invocation directory precedes declared PYTHONPATH roots.
     assert roots == (
+        ImportRoot("."),
         ImportRoot(r"C:\repo\.agents", True),
         ImportRoot(r"D:\vendor", True),
-        ImportRoot("."),
     )
     assert issue is None
     assert not unresolved_roots

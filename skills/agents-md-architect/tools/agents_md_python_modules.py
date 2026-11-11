@@ -9,9 +9,15 @@ import sys
 from pathlib import Path
 from typing import Final
 
-from agents_md_checkout_sources import resolve_import_source_path
+from agents_md_checkout_sources import record_external_only_candidates, resolve_import_source_path
 from agents_md_python_imports import has_repository_module_namespace
-from agents_md_python_roots import normalize_pythonpath_roots, pythonpath_roots, resolve_module_paths
+from agents_md_python_roots import (
+    _record_shadows,
+    _shadow_issues,
+    normalize_pythonpath_roots,
+    pythonpath_roots,
+    resolve_module_paths,
+)
 from agents_md_source_types import CommandSource, ModuleInvocation
 from discover_repository import Discovery
 
@@ -101,7 +107,9 @@ def module_invocation_references(
     parts = module.split(".")
     module_targets: dict[str, str] = {}
     external_sources: dict[str, set[str]] = {}
-    for import_root in roots:
+    external_candidates: list[tuple[int, str]] = []
+    first_local_index: int | None = None
+    for root_index, import_root in enumerate(roots):
         for candidate, resolved_name in resolve_module_paths(module, (import_root.path,)):
             path, external_path, ownership_issue = resolve_import_source_path(source, import_root, candidate)
             if ownership_issue is not None:
@@ -109,14 +117,21 @@ def module_invocation_references(
             elif external_path is not None:
                 if candidate in discovered_files:
                     external_sources.setdefault(external_path, set()).add(source.origin)
+                external_candidates.append((root_index, external_path))
             elif path is not None and path in discovered_files:
+                if first_local_index is None:
+                    first_local_index = root_index
                 module_targets[path] = resolved_name
+    _record_shadows(external_candidates, first_local_index, external_sources, source.origin)
+    issues.extend(_shadow_issues(external_candidates, first_local_index, module, source.origin))
     module_files = tuple((path, name) for path, name in module_targets.items() if not path.endswith("/__init__.py"))
     package_initializers_only = tuple(
         (path, name) for path, name in module_targets.items() if path.endswith("/__init__.py")
     )
     package_mains: dict[str, str] = {}
-    for import_root in roots:
+    main_external_candidates: list[tuple[int, str]] = []
+    first_main_local_index: int | None = None
+    for root_index, import_root in enumerate(roots):
         root = import_root.path
         package_path = posixpath.normpath(posixpath.join(root, relative_module))
         if package_path == ".." or package_path.startswith("../") or package_path.startswith("/"):
@@ -128,26 +143,16 @@ def module_invocation_references(
         elif external_path is not None:
             if main_path in discovered_files:
                 external_sources.setdefault(external_path, set()).add(source.origin)
+            main_external_candidates.append((root_index, external_path))
         elif path is not None and path in discovered_files:
+            if first_main_local_index is None:
+                first_main_local_index = root_index
             package_mains[path] = f"{module}.__main__"
+    _record_shadows(main_external_candidates, first_main_local_index, external_sources, source.origin)
+    issues.extend(_shadow_issues(main_external_candidates, first_main_local_index, module, source.origin))
 
     if not external_sources and not module_targets and not package_mains:
-        # The invocation resolved nowhere locally: record external ownership for
-        # every root that maps into an external checkout, regardless of whether
-        # a candidate-local lookalike exists, so external-only invocations stay
-        # visible in the evidence instead of returning a silent complete audit.
-        for import_root in roots:
-            for candidate, _resolved_name in resolve_module_paths(module, (import_root.path,)):
-                path, external_path, ownership_issue = resolve_import_source_path(source, import_root, candidate)
-                if ownership_issue is None and external_path is not None:
-                    external_sources.setdefault(external_path, set()).add(source.origin)
-            package_path = posixpath.normpath(posixpath.join(import_root.path, relative_module))
-            if package_path != ".." and not package_path.startswith("../") and not package_path.startswith("/"):
-                path, external_path, ownership_issue = resolve_import_source_path(
-                    source, import_root, f"{package_path}/__main__.py"
-                )
-                if ownership_issue is None and external_path is not None:
-                    external_sources.setdefault(external_path, set()).add(source.origin)
+        record_external_only_candidates(source, roots, module, relative_module, external_sources)
 
     matches: tuple[tuple[str, str], ...]
     initialized_prefixes: range
