@@ -574,6 +574,13 @@ def test_mid_stream_multiline_function_body_transfers_to_line_branch() -> None:
     assert not any(scope == "tools" for _command, scope in scoped)
 
 
+def test_function_definition_inside_brace_group_keeps_suffix_at_root() -> None:
+    """9nj5: a function body inside a group is inert; the group suffix stays at root."""
+    scoped = _scoped("{ helper() { :; cd tools; }; python check.py; }\n")
+    assert ("python check.py", ".") in scoped
+    assert not any(scope == "tools" for _command, scope in scoped)
+
+
 def test_wrapped_builtin_transition_is_applied() -> None:
     """Codex 2BaN: `command cd ..` is a real directory transition."""
     scoped = _scoped("cd tools; command cd ..; python check.py\n")
@@ -614,6 +621,15 @@ def test_quoted_json_argument_never_recurses_and_stays_inert() -> None:
     scoped, issues = _scoped_issues('python real.py --json \'{"a":"x;y"}\'\n')
     assert issues == [], f"no fail-closed issue for valid quoted data: {issues}"
     assert any(command.startswith("python real.py") for command, _scope in scoped)
+
+
+def test_quoted_semicolon_inside_brace_group_is_argument_data() -> None:
+    """9nj_: quoted `;` is an echo argument, not a structural separator."""
+    scoped, issues = _scoped_issues("{ echo ';' cd tools; python check.py; }\n")
+    assert issues == []
+    assert ("echo ';' cd tools", ".") in scoped
+    assert ("python check.py", ".") in scoped
+    assert not any(scope == "tools" for _command, scope in scoped)
 
 
 def test_escaped_brace_argument_is_inert_data() -> None:
