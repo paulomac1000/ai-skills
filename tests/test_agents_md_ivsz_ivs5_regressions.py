@@ -90,9 +90,11 @@ def test_quoted_semicolon_argument_stays_whole() -> None:
 
 
 def test_quoted_semicolon_with_root_and_tools_files_keeps_entrypoint(tmp_path: Path) -> None:
-    """With both root and tools `check.py` present, the quoted-`;` command
-    still resolves the module entrypoint at the ROOT scope (no `cd tools`
-    misattribution, no fragmentation)."""
+    """The full classifier resolves the quoted-`;` module at root when both
+    root and tools `check.py` exist, without argument fragmentation."""
+    from agents_md_gate_sources import classify_gate_sources
+    from discover_repository import discover
+
     (tmp_path / "check.py").write_text("VALUE = 1\n", encoding="utf-8")
     tools = tmp_path / "tools"
     tools.mkdir()
@@ -103,6 +105,18 @@ def test_quoted_semicolon_with_root_and_tools_files_keeps_entrypoint(tmp_path: P
     command, scope = scoped[0]
     assert shlex.split(command) == ["python", "-m", "check", "--format", ";"]
     assert scope == "."
+
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n  verify:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: python -m check --format ';'\n",
+        encoding="utf-8",
+    )
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    counted = {source.path for source in inventory.sources if source.counted}
+    assert "check.py" in counted, "the actual root module entrypoint is resolved"
+    assert "tools/check.py" not in counted, "the tools lookalike is not mistaken for the entrypoint"
+    assert inventory.issues == ()
 
 
 def test_quoted_closing_brace_argument_is_not_structure() -> None:
