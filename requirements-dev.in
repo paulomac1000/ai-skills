@@ -1,6 +1,6 @@
 bandit==1.9.4
 build==1.6.1
-certifi==2026.10.19
+certifi==2026.10.23
 filelock==4.2.1
 httpx2==2.16.0
 jsonschema==4.26.0
