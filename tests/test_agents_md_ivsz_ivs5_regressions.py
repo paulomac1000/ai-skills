@@ -14,6 +14,7 @@ operator across brace-group boundaries and quote-aware structural triggers.
 
 from __future__ import annotations
 
+import shlex
 import sys
 from pathlib import Path
 
@@ -82,13 +83,10 @@ def test_quoted_semicolon_argument_stays_whole() -> None:
     and argument boundaries preserved."""
     scoped, issues = _scoped_issues('python -m check --format ";"\n')
     assert issues == []
-    assert any(
-        command.startswith("python -m check")
-        and "'--format';';'" not in command
-        or command.startswith("python -m check")
-        for command, _scope in scoped
-    ), scoped
-    assert all(scope == "." for _command, scope in scoped), scoped
+    assert len(scoped) == 1, scoped
+    command, scope = scoped[0]
+    assert shlex.split(command) == ["python", "-m", "check", "--format", ";"]
+    assert scope == "."
 
 
 def test_quoted_semicolon_with_root_and_tools_files_keeps_entrypoint(tmp_path: Path) -> None:
@@ -101,8 +99,10 @@ def test_quoted_semicolon_with_root_and_tools_files_keeps_entrypoint(tmp_path: P
     (tools / "check.py").write_text("VALUE = 2\n", encoding="utf-8")
     scoped, issues = _scoped_issues("python -m check --format ';'\n")
     assert issues == []
-    assert any(command.startswith("python -m check") for command, _scope in scoped), scoped
-    assert all(scope == "." for _command, scope in scoped), scoped
+    assert len(scoped) == 1, scoped
+    command, scope = scoped[0]
+    assert shlex.split(command) == ["python", "-m", "check", "--format", ";"]
+    assert scope == "."
 
 
 def test_quoted_closing_brace_argument_is_not_structure() -> None:
@@ -110,10 +110,17 @@ def test_quoted_closing_brace_argument_is_not_structure() -> None:
     structural group."""
     scoped, issues = _scoped_issues("python -m check --format '}'\n")
     assert issues == []
-    assert any(command.startswith("python -m check") for command, _scope in scoped), scoped
+    assert len(scoped) == 1, scoped
+    command, scope = scoped[0]
+    assert shlex.split(command) == ["python", "-m", "check", "--format", "}"]
+    assert scope == "."
 
 
 def test_escaped_punctuation_argument_is_not_structure() -> None:
     """An escaped semicolon argument stays argument data."""
-    scoped, issues = _scoped_issues(r"python -m check --format \;\n")
-    assert any(command.startswith("python -m check") for command, _scope in scoped), scoped
+    scoped, issues = _scoped_issues(r"python -m check --format \;" + "\n")
+    assert issues == []
+    assert len(scoped) == 1, scoped
+    command, scope = scoped[0]
+    assert shlex.split(command) == ["python", "-m", "check", "--format", ";"]
+    assert scope == "."
